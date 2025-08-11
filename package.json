@@ -1,0 +1,32 @@
+{
+  "name": "interstellar",
+  "version": "5.2.5",
+  "type": "module",
+  "engines": {
+    "npm": ">=7.0.0",
+    "node": ">=16.0.0"
+  },
+  "scripts": {
+    "start": "node index.js",
+    "format": "biome format --write .",
+    "precommit": "pnpm run format && biome check --write .",
+    "lint": "biome lint --write ."
+  },
+  "author": "InterstellarNetwork",
+  "license": "GPL-3.0-or-later",
+  "dependencies": {
+    "@nebula-services/bare-server-node": "^2.0.4",
+    "chalk": "^5.4.1",
+    "cookie-parser": "^1.4.7",
+    "cors": "^2.8.5",
+    "dotenv": "^17.2.0",
+    "express": "^4.21.2",
+    "express-basic-auth": "^1.2.1",
+    "mime": "^4.0.7",
+    "node-fetch": "^3.3.2"
+  },
+  "devDependencies": {
+    "@biomejs/biome": "2.1.1"
+  },
+  "packageManager": "pnpm@9.10.0"
+}
