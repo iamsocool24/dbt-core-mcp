@@ -134,6 +134,7 @@ Or with `pipx`:
 - List all sources with identifiers
 - **Get detailed model information** with all manifest metadata (~40 fields)
 - **Get detailed source information** with complete configuration
+- **Get compiled SQL for models** with smart caching and Jinja resolution
 - Refresh manifest (run `dbt parse`)
 - **Query database with Jinja templating** ({{ ref('model') }}, {{ source('src', 'table') }})
 - Full SQL support (SELECT, DESCRIBE, EXPLAIN, aggregations, JOINs)
@@ -144,7 +145,6 @@ Or with `pipx`:
 - Concurrency protection for safe DBT execution
 
 🚧 **Planned:**
-- View compiled SQL for models
 - Run specific models
 - Test models  
 - View model lineage graph
@@ -195,6 +195,28 @@ Get detailed information about a specific DBT source:
 - Source-specific settings like loader, identifier, quoting, etc.
 
 **Usage:** `get_source_info(source_name="jaffle_shop", table_name="customers")`
+
+### `get_compiled_sql`
+Get the compiled SQL for a specific DBT model:
+- Returns the fully compiled SQL with all Jinja templating rendered
+- `{{ ref() }}`, `{{ source() }}`, etc. resolved to actual table names
+- Smart caching: only compiles if not already compiled
+- Force option to recompile even if cached
+- Runs `dbt compile -s <model>` only when needed
+
+**Usage:** 
+- `get_compiled_sql(name="customers")` - Uses cache if available
+- `get_compiled_sql(name="customers", force=True)` - Forces recompilation
+
+**Returns:**
+```json
+{
+  "model_name": "customers",
+  "compiled_sql": "with customers as (\n  select * from \"jaffle_shop\".\"main\".\"stg_customers\"\n)...",
+  "status": "success",
+  "cached": true
+}
+```
 
 ### `refresh_manifest`
 Refreshes the DBT manifest by running `dbt parse`:
