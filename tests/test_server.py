@@ -10,5 +10,5 @@ def test_server_creation() -> None:
     server = create_server()
     assert server is not None
     assert server.app is not None
-    assert isinstance(server.project_dirs, list)
+    assert server.project_dir is None  # No project dir when created without argument
     assert server.profiles_dir is not None
