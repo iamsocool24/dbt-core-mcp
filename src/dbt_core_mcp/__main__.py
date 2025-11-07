@@ -1,0 +1,84 @@
+#!/usr/bin/env python3
+"""
+Main entry point for the DBT Core MCP Server.
+
+This script provides the command-line interface to run the MCP server
+for interacting with DBT projects.
+"""
+
+import argparse
+import logging
+import sys
+
+from .server import create_server
+
+
+def setup_logging(debug: bool = False) -> None:
+    """Set up logging configuration."""
+    level = logging.DEBUG if debug else logging.INFO
+    import os
+    import tempfile
+
+    handlers: list[logging.Handler] = [logging.StreamHandler(sys.stderr)]
+    try:
+        temp_log_dir = os.path.join(tempfile.gettempdir(), "dbt_core_mcp_logs")
+        os.makedirs(temp_log_dir, exist_ok=True)
+        log_path = os.path.join(temp_log_dir, "dbt_core_mcp.log")
+        file_handler = logging.FileHandler(log_path, encoding="utf-8")
+        file_handler.setFormatter(logging.Formatter("%(asctime)s - %(name)s - %(levelname)s - %(message)s"))
+        handlers.append(file_handler)
+        print(f"[DBT Core MCP] Log file: {log_path}", file=sys.stderr)
+    except Exception:
+        pass  # If file can't be opened, just use stderr
+
+    handlers[0].setFormatter(logging.Formatter("%(asctime)s - %(name)s - %(levelname)s - %(message)s"))
+
+    logging.basicConfig(
+        level=level,
+        format="%(asctime)s - %(name)s - %(levelname)s - %(message)s",
+        handlers=handlers,
+    )
+
+
+def parse_arguments() -> argparse.Namespace:
+    """Parse command-line arguments."""
+    from . import __version__
+
+    parser = argparse.ArgumentParser(
+        description="DBT Core MCP Server - Interact with DBT projects via MCP",
+        prog="dbt-core-mcp",
+    )
+
+    parser.add_argument("--debug", action="store_true", help="Enable debug logging")
+
+    parser.add_argument("--version", action="version", version=f"%(prog)s {__version__}")
+
+    return parser.parse_args()
+
+
+def main() -> None:
+    """Main entry point."""
+    args = parse_arguments()
+
+    # Set up logging
+    setup_logging(args.debug)
+
+    # Create and run the server
+    from . import __version__
+
+    logging.info(f"Running version {__version__}")
+    server = create_server()
+
+    try:
+        # Run the server with stdio transport (MCP standard)
+        server.run()
+
+    except KeyboardInterrupt:
+        logging.info("Server stopped by user")
+    except Exception as e:
+        logging.error(f"Server error: {e}")
+        sys.exit(1)
+
+
+if __name__ == "__main__":
+    main()
