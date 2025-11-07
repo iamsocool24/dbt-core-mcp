@@ -99,6 +99,7 @@ Or with `pipx`:
 - List and inspect models and sources with full details
 - Execute SQL queries with dbt's ref() and source() functions
 - Get compiled SQL for any model
+- **Lineage & impact analysis** (explore dependencies, assess change impact)
 - Run, test, and build models with smart change detection
 - Detect schema changes (added/removed columns)
 - State-based execution for fast iteration
@@ -110,75 +111,144 @@ Or with `pipx`:
 
 ## Available Tools
 
-### `get_project_info`
+### Project Information
+
+#### `get_project_info`
 Get basic information about your dbt project including name, version, adapter type, and model/source counts.
 
-### `list_models`
+**Ask Copilot:**
+- "What dbt version is this project using?"
+- "How many models and sources are in this project?"
+
+#### `list_models`
 List all models in your project with their names, schemas, materialization types, tags, and dependencies.
 
-### `list_sources`
+**Ask Copilot:**
+- "Show me all the models in this project"
+- "Which models are materialized as tables?"
+- "List all staging models"
+
+#### `list_sources`
 List all sources in your project with their identifiers, schemas, and descriptions.
 
-### `get_model_info`
+**Ask Copilot:**
+- "What data sources are configured in this project?"
+- "Show me all available source tables"
+
+### Lineage & Impact Analysis
+
+#### `get_model_lineage`
+Get the full dependency tree (lineage) for one or more models showing upstream and/or downstream relationships.
+
+**Ask Copilot:**
+- "Show me the lineage for the customers model"
+- "What models does stg_orders depend on?"
+- "What's downstream from stg_customers and stg_orders?"
+- "Show me where the revenue model gets its data from"
+
+**Parameters:**
+- `names`: Model name(s) - single string or list of models
+- `direction`: "upstream" (sources), "downstream" (dependents), or "both" (default)
+- `depth`: Maximum levels to traverse (None for unlimited, 1 for immediate, etc.)
+
+**Use cases:**
+- Understand data flow and model relationships
+- Explore where models get their data from
+- See what models depend on specific models
+- Analyze combined dependencies for multiple models
+
+#### `analyze_model_impact`
+Analyze the impact of changing one or more models - shows all downstream dependencies affected.
+
+**Ask Copilot:**
+- "What's the impact of changing the stg_customers model?"
+- "If I modify stg_orders, what else needs to run?"
+- "What's the combined impact of changing all staging models?"
+- "How many models will break if I change this?"
+
+**Parameters:**
+- `names`: Model name(s) - single string or list of models
+
+**Returns:**
+- List of affected models grouped by distance
+- Count of affected tests and other resources
+- Total impact statistics (deduplicated for multiple models)
+- Recommended dbt command to run
+
+**Use cases:**
+- Before refactoring: understand blast radius
+- Planning incremental rollouts
+- Estimating rebuild time after changes
+- Risk assessment for model modifications
+
+### Model Information
+
+#### `get_model_info`
 Get complete information about a specific model including configuration, dependencies, and actual database schema.
+
+**Ask Copilot:**
+- "Show me details about the customers model"
+- "What columns does the orders model have?"
+- "What's the materialization type for stg_payments?"
 
 **Parameters:**
 - `name`: Model name (e.g., "customers")
 - `include_database_schema`: Include actual column types from database (default: true)
 
-**Example:**
-```python
-get_model_info(name="customers")
-# Returns manifest metadata + database columns with types
-```
-
-### `get_source_info`
+#### `get_source_info`
 Get detailed information about a specific source including all configuration and metadata.
+
+**Ask Copilot:**
+- "Show me the schema for the raw customers source"
+- "What columns are in the orders source table?"
 
 **Parameters:**
 - `source_name`: Source name (e.g., "jaffle_shop")
 - `table_name`: Table name within the source (e.g., "customers")
 
-### `get_compiled_sql`
+#### `get_compiled_sql`
 Get the fully compiled SQL for a model with all Jinja templating resolved to actual table names.
+
+**Ask Copilot:**
+- "Show me the compiled SQL for the customers model"
+- "What does the final query look like for stg_orders?"
+- "Convert the customers model Jinja to actual SQL"
 
 **Parameters:**
 - `name`: Model name
 - `force`: Force recompilation even if cached (default: false)
 
-**Example:**
-```python
-get_compiled_sql(name="customers")
-# Returns SQL with {{ ref() }} replaced by actual table paths
-```
-
-### `refresh_manifest`
+#### `refresh_manifest`
 Update the dbt manifest by running `dbt parse`. Use after making changes to model files.
 
-### `query_database`
+**Ask Copilot:**
+- "Refresh the dbt manifest"
+- "Parse the dbt project to pick up my changes"
+
+#### `query_database`
 Execute SQL queries against your database using dbt's ref() and source() functions.
+
+**Ask Copilot:**
+- "Show me 10 rows from the customers model"
+- "Count the orders in the staging table"
+- "What's the schema of stg_payments?"
+- "Query the raw orders source and show me recent records"
 
 **Parameters:**
 - `sql`: SQL query with optional {{ ref() }} and {{ source() }} functions
 - `limit`: Maximum rows to return (optional, defaults to unlimited)
 
-**Examples:**
-```sql
--- Query a model
-SELECT * FROM {{ ref('customers') }} LIMIT 10
+### Model Execution
 
--- Query a source
-SELECT * FROM {{ source('jaffle_shop', 'orders') }}
+#### `run_models`
+Run dbt models with smart selection for fast development.
 
--- Inspect schema
-DESCRIBE {{ ref('stg_customers') }}
-
--- Aggregations
-SELECT COUNT(*) FROM {{ ref('orders') }}
-```
-
-### `run_models`
-Run dbt models with smart selection for fast development:
+**Ask Copilot:**
+- "Run only the models I changed"
+- "Run my changes and everything downstream"
+- "Run the customers model"
+- "Build all mart models with a full refresh"
+- "Run modified models and check for schema changes"
 
 **Smart selection modes:**
 - `modified_only`: Run only models that changed
@@ -191,26 +261,17 @@ Run dbt models with smart selection for fast development:
 - `fail_fast`: Stop on first failure
 - `check_schema_changes`: Detect column additions/removals
 
-**Examples:**
-```python
-# Run only changed models (fast!)
-run_models(modified_only=True)
-
-# Run changes + downstream dependencies
-run_models(modified_downstream=True)
-
-# Detect schema changes
-run_models(modified_only=True, check_schema_changes=True)
-
-# Run specific model
-run_models(select="customers")
-```
-
 **Schema Change Detection:**
 When enabled, detects added or removed columns and recommends running downstream models to propagate changes.
 
-### `test_models`
-Run dbt tests with smart selection:
+#### `test_models`
+Run dbt tests with smart selection.
+
+**Ask Copilot:**
+- "Test only the models I changed"
+- "Run tests for my changes and downstream models"
+- "Test the customers model"
+- "Run all tests for staging models"
 
 **Parameters:**
 - `modified_only`: Test only changed models
@@ -219,21 +280,22 @@ Run dbt tests with smart selection:
 - `exclude`: Exclude tests
 - `fail_fast`: Stop on first failure
 
-**Example:**
-```python
-test_models(modified_downstream=True)
-```
+#### `build_models`
+Run models and tests together in dependency order (most efficient approach).
 
-### `build_models`
-Run models and tests together in dependency order (most efficient approach):
+**Ask Copilot:**
+- "Build my changes and everything downstream"
+- "Run and test only what I modified"
+- "Build the entire mart layer with tests"
 
-**Example:**
-```python
-build_models(modified_downstream=True)
-```
-
-### `seed_data`
+#### `seed_data`
 Load seed data (CSV files) from `seeds/` directory into database tables.
+
+**Ask Copilot:**
+- "Load all seed data"
+- "Load only the seeds I changed"
+- "Reload the raw_customers seed file"
+- "Show me what's in the country_codes seed"
 
 Seeds are typically used for reference data like country codes, product categories, etc.
 
@@ -247,26 +309,19 @@ Seeds are typically used for reference data like country codes, product categori
 - `full_refresh`: Truncate and reload seed tables
 - `show`: Show preview of loaded data
 
-**Examples:**
-```python
-# Load all seeds
-seed_data()
-
-# Load only changed CSVs (fast!)
-seed_data(modified_only=True)
-
-# Load specific seed
-seed_data(select="raw_customers")
-```
-
 **Important:** Change detection works via file hash:
 - Seeds < 1 MiB: Content changes detected ✅
 - Seeds ≥ 1 MiB: Only file path changes detected ⚠️
 
 For large seeds, use manual selection or run all seeds.
 
-### `snapshot_models`
+#### `snapshot_models`
 Execute dbt snapshots to capture slowly changing dimensions (SCD Type 2).
+
+**Ask Copilot:**
+- "Run all snapshots"
+- "Execute the customer_history snapshot"
+- "Run daily snapshots"
 
 Snapshots track historical changes by recording when records were first seen, when they changed, and their state at each point in time.
 
@@ -274,35 +329,16 @@ Snapshots track historical changes by recording when records were first seen, wh
 - `select`: Snapshot selector (e.g., "customer_history", "tag:daily")
 - `exclude`: Exclude snapshots
 
-**Examples:**
-```python
-# Run all snapshots
-snapshot_models()
-
-# Run specific snapshot
-snapshot_models(select="customer_history")
-
-# Run snapshots tagged 'hourly'
-snapshot_models(select="tag:hourly")
-```
-
 **Note:** Snapshots are time-based and should be run on a schedule (e.g., daily/hourly), not during interactive development. They do not support smart selection.
 
 ## Developer Workflow
 
 Fast iteration with smart selection:
 
-```python
-# 1. Edit a model file
-# 2. Run only what changed (~0.3s vs full project ~5s)
-run_models(modified_only=True)
-
-# 3. Run downstream dependencies
-run_models(modified_downstream=True)
-
-# 4. Test everything affected
-test_models(modified_downstream=True)
-```
+**Ask Copilot:**
+- "Run only what I changed"
+- "Run my changes and test everything downstream"
+- "Build my modified models with tests"
 
 The first run establishes a baseline state automatically. Subsequent runs detect changes and run only what's needed.
 

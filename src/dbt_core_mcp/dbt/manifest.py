@@ -247,3 +247,142 @@ class ManifestLoader:
             "model_count": len(self.get_models()),
             "source_count": len(self.get_sources()),
         }
+
+    def get_manifest_dict(self) -> dict:
+        """Get the raw manifest dictionary.
+
+        Returns:
+            Raw manifest dictionary
+
+        Raises:
+            RuntimeError: If manifest not loaded
+        """
+        if not self._manifest:
+            raise RuntimeError("Manifest not loaded. Call load() first.")
+        return self._manifest
+
+    def get_node_by_unique_id(self, unique_id: str) -> dict | None:
+        """Get a node (model, test, etc.) by its unique_id.
+
+        Args:
+            unique_id: The unique identifier (e.g., 'model.package.model_name')
+
+        Returns:
+            Node dictionary or None if not found
+        """
+        if not self._manifest:
+            raise RuntimeError("Manifest not loaded. Call load() first.")
+
+        # Check nodes first (models, tests, snapshots, etc.)
+        nodes = self._manifest.get("nodes", {})
+        if unique_id in nodes:
+            return dict(nodes[unique_id])
+
+        # Check sources
+        sources = self._manifest.get("sources", {})
+        if unique_id in sources:
+            return dict(sources[unique_id])
+
+        return None
+
+    def get_upstream_nodes(self, unique_id: str, max_depth: int | None = None, current_depth: int = 0) -> list[dict[str, object]]:
+        """Get all upstream dependencies of a node recursively.
+
+        Args:
+            unique_id: The unique identifier of the node
+            max_depth: Maximum depth to traverse (None for unlimited)
+            current_depth: Current recursion depth (internal use)
+
+        Returns:
+            List of dictionaries with upstream node info:
+            {"unique_id": str, "name": str, "type": str, "distance": int}
+        """
+        if not self._manifest:
+            raise RuntimeError("Manifest not loaded. Call load() first.")
+
+        if max_depth is not None and current_depth >= max_depth:
+            return []
+
+        parent_map = self._manifest.get("parent_map", {})
+        parents = parent_map.get(unique_id, [])
+
+        upstream: list[dict[str, object]] = []
+        seen: set[str] = set()
+
+        for parent_id in parents:
+            if parent_id in seen:
+                continue
+            seen.add(parent_id)
+
+            node = self.get_node_by_unique_id(parent_id)
+            if node:
+                resource_type = node.get("resource_type", "unknown")
+                upstream.append(
+                    {
+                        "unique_id": parent_id,
+                        "name": node.get("name", ""),
+                        "type": resource_type,
+                        "distance": current_depth + 1,
+                    }
+                )
+
+                # Recurse
+                if max_depth is None or current_depth + 1 < max_depth:
+                    grandparents = self.get_upstream_nodes(parent_id, max_depth, current_depth + 1)
+                    for gp in grandparents:
+                        if gp["unique_id"] not in seen:
+                            seen.add(str(gp["unique_id"]))
+                            upstream.append(gp)
+
+        return upstream
+
+    def get_downstream_nodes(self, unique_id: str, max_depth: int | None = None, current_depth: int = 0) -> list[dict[str, object]]:
+        """Get all downstream dependents of a node recursively.
+
+        Args:
+            unique_id: The unique identifier of the node
+            max_depth: Maximum depth to traverse (None for unlimited)
+            current_depth: Current recursion depth (internal use)
+
+        Returns:
+            List of dictionaries with downstream node info:
+            {"unique_id": str, "name": str, "type": str, "distance": int}
+        """
+        if not self._manifest:
+            raise RuntimeError("Manifest not loaded. Call load() first.")
+
+        if max_depth is not None and current_depth >= max_depth:
+            return []
+
+        child_map = self._manifest.get("child_map", {})
+        children = child_map.get(unique_id, [])
+
+        downstream: list[dict[str, object]] = []
+        seen: set[str] = set()
+
+        for child_id in children:
+            if child_id in seen:
+                continue
+            seen.add(child_id)
+
+            node = self.get_node_by_unique_id(child_id)
+            if node:
+                resource_type = node.get("resource_type", "unknown")
+                downstream.append(
+                    {
+                        "unique_id": child_id,
+                        "name": node.get("name", ""),
+                        "type": resource_type,
+                        "distance": current_depth + 1,
+                    }
+                )
+
+                # Recurse
+                if max_depth is None or current_depth + 1 < max_depth:
+                    grandchildren = self.get_downstream_nodes(child_id, max_depth, current_depth + 1)
+                    for gc in grandchildren:
+                        if gc["unique_id"] not in seen:
+                            seen.add(str(gc["unique_id"]))
+                            downstream.append(gc)
+
+        return downstream
