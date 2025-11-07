@@ -10,6 +10,8 @@ import os
 import shutil
 from pathlib import Path
 from typing import Any, Optional
+from urllib.parse import unquote
+from urllib.request import url2pathname
 
 import yaml
 from fastmcp import FastMCP
@@ -122,9 +124,11 @@ class DBTCoreMCPServer:
             if isinstance(ctx, Context):
                 roots = await ctx.list_roots()
                 if roots:
-                    uri_str = roots[0].uri.path if hasattr(roots[0].uri, "path") else str(roots[0].uri)
-                    if uri_str:  # Ensure we have a valid string
-                        workspace_root = Path(uri_str)
+                    # Convert file:// URL to platform-appropriate path
+                    # First unquote to decode %XX sequences, then url2pathname for platform conversion
+                    uri_path = roots[0].uri.path if hasattr(roots[0].uri, "path") else str(roots[0].uri)
+                    if uri_path:
+                        workspace_root = Path(url2pathname(unquote(uri_path)))
                         logger.info(f"Detected workspace root from MCP client: {workspace_root}")
                         return workspace_root
         except Exception as e:
