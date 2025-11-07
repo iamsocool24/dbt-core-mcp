@@ -194,6 +194,43 @@ class BridgeRunner:
 
         return result
 
+    def invoke_compile(self, model_name: str, force: bool = False) -> DbtRunnerResult:
+        """
+        Compile a specific model, optionally forcing recompilation.
+
+        Args:
+            model_name: Name of the model to compile (e.g., 'customers')
+            force: If True, always compile. If False, only compile if not already compiled.
+
+        Returns:
+            Result of the compilation
+        """
+        # If not forcing, check if already compiled
+        if not force:
+            manifest_path = self.get_manifest_path()
+            if manifest_path.exists():
+                try:
+                    with open(manifest_path) as f:
+                        manifest = json.load(f)
+
+                    # Check if model has compiled_code
+                    nodes = manifest.get("nodes", {})
+                    for node in nodes.values():
+                        if node.get("resource_type") == "model" and node.get("name") == model_name:
+                            if node.get("compiled_code"):
+                                logger.info(f"Model '{model_name}' already compiled, skipping compilation")
+                                return DbtRunnerResult(success=True, stdout="Already compiled", stderr="")
+                            break
+                except Exception as e:
+                    logger.warning(f"Failed to check compilation status: {e}, forcing compilation")
+
+        # Run compile for specific model
+        logger.info(f"Compiling model: {model_name}")
+        args = ["compile", "-s", model_name]
+        result = self.invoke(args)
+
+        return result
+
     def _build_script(self, args: list[str]) -> str:
         """
         Build inline Python script to execute dbtRunner.

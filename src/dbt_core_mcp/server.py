@@ -336,6 +336,61 @@ class DBTCoreMCPServer:
                 raise ValueError(f"Source not found: {e}")
 
         @self.app.tool()
+        def get_compiled_sql(name: str, force: bool = False) -> dict[str, object]:
+            """Get the compiled SQL for a specific DBT model.
+
+            Returns the fully compiled SQL with all Jinja templating rendered
+            ({{ ref() }}, {{ source() }}, etc. resolved to actual table names).
+
+            Args:
+                name: Model name (e.g., 'customers' or 'staging.stg_orders')
+                force: If True, force recompilation even if already compiled
+
+            Returns:
+                Dictionary with compiled SQL and metadata
+            """
+            self._ensure_initialized()
+
+            try:
+                # Check if already compiled
+                compiled_code = self.manifest.get_compiled_code(name)  # type: ignore
+
+                if compiled_code and not force:
+                    return {
+                        "model_name": name,
+                        "compiled_sql": compiled_code,
+                        "status": "success",
+                        "cached": True,
+                    }
+
+                # Need to compile
+                logger.info(f"Compiling model: {name}")
+                result = self.runner.invoke_compile(name, force=force)  # type: ignore
+
+                if not result.success:
+                    error_msg = str(result.exception) if result.exception else "Compilation failed"
+                    raise RuntimeError(f"Failed to compile model '{name}': {error_msg}")
+
+                # Reload manifest to get compiled code
+                self.manifest.load()  # type: ignore
+                compiled_code = self.manifest.get_compiled_code(name)  # type: ignore
+
+                if not compiled_code:
+                    raise RuntimeError(f"Model '{name}' compiled but no compiled_code found in manifest")
+
+                return {
+                    "model_name": name,
+                    "compiled_sql": compiled_code,
+                    "status": "success",
+                    "cached": False,
+                }
+
+            except ValueError as e:
+                raise ValueError(f"Model not found: {e}")
+            except Exception as e:
+                raise RuntimeError(f"Failed to get compiled SQL: {e}")
+
+        @self.app.tool()
         def refresh_manifest(force: bool = True) -> dict[str, object]:
             """Refresh the DBT manifest by running dbt parse.
 

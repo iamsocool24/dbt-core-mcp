@@ -182,6 +182,23 @@ class ManifestLoader:
 
         raise ValueError(f"Model '{name}' not found in manifest")
 
+    def get_compiled_code(self, name: str) -> str | None:
+        """
+        Get the compiled SQL code for a model.
+
+        Args:
+            name: Model name
+
+        Returns:
+            Compiled SQL string if available, None if not compiled yet
+
+        Raises:
+            RuntimeError: If manifest not loaded
+            ValueError: If model not found
+        """
+        node = self.get_model_node(name)  # Will raise ValueError if not found
+        return node.get("compiled_code")
+
     def get_source_node(self, source_name: str, table_name: str) -> dict:
         """
         Get the raw manifest node for a source by source name and table name.
