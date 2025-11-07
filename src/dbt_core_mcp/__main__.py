@@ -51,6 +51,12 @@ def parse_arguments() -> argparse.Namespace:
 
     parser.add_argument("--debug", action="store_true", help="Enable debug logging")
 
+    parser.add_argument(
+        "--project-dir",
+        type=str,
+        help="Optional: Path to DBT project directory for testing (overrides MCP workspace roots)",
+    )
+
     parser.add_argument("--version", action="version", version=f"%(prog)s {__version__}")
 
     return parser.parse_args()
@@ -67,7 +73,7 @@ def main() -> None:
     from . import __version__
 
     logging.info(f"Running version {__version__}")
-    server = create_server()
+    server = create_server(project_dir=args.project_dir)
 
     try:
         # Run the server with stdio transport (MCP standard)

@@ -6,6 +6,7 @@ This server provides tools for interacting with DBT projects via the Model Conte
 
 import logging
 import os
+from typing import Optional
 
 from fastmcp import FastMCP
 from fastmcp.server.middleware.error_handling import ErrorHandlingMiddleware
@@ -23,8 +24,12 @@ class DBTCoreMCPServer:
     Provides tools for interacting with DBT projects.
     """
 
-    def __init__(self) -> None:
+    def __init__(self, project_dir: Optional[str] = None) -> None:
         """Initialize the server.
+
+        Args:
+            project_dir: Optional path to DBT project directory for testing.
+                         If not provided, uses MCP workspace roots.
 
         DBT project directories will be detected from MCP workspace roots during initialization.
         """
@@ -54,7 +59,8 @@ class DBTCoreMCPServer:
         )
 
         # DBT project directories will be set from workspace roots during MCP initialization
-        self.project_dirs: list[str] = []
+        # or from the optional project_dir argument for testing
+        self.project_dirs: list[str] = [project_dir] if project_dir else []
         self.profiles_dir = os.path.expanduser("~/.dbt")
 
         # Add built-in FastMCP middleware (2.11.0)
@@ -67,6 +73,10 @@ class DBTCoreMCPServer:
         self._register_tools()
 
         logger.info("DBT Core MCP Server initialized")
+        if self.project_dirs:
+            logger.info(f"Project directories: {self.project_dirs}")
+        else:
+            logger.info("Project directories will be set from MCP workspace roots")
         logger.info(f"Profiles directory: {self.profiles_dir}")
 
     def _register_tools(self) -> None:
@@ -101,10 +111,14 @@ class DBTCoreMCPServer:
         self.app.run()
 
 
-def create_server() -> DBTCoreMCPServer:
+def create_server(project_dir: Optional[str] = None) -> DBTCoreMCPServer:
     """Create a new DBT Core MCP server instance.
+
+    Args:
+        project_dir: Optional path to DBT project directory for testing.
+                     If not provided, uses MCP workspace roots.
 
     Returns:
         DBTCoreMCPServer instance
     """
-    return DBTCoreMCPServer()
+    return DBTCoreMCPServer(project_dir=project_dir)
