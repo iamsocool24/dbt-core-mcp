@@ -306,9 +306,9 @@ class DBTCoreMCPServer:
                 return {
                     "status": "success",
                     "message": "Manifest refreshed successfully",
-                    "project_name": self.manifest.get_project_info()["project_name"] if self.manifest else None,  # type: ignore
-                    "model_count": len(self.manifest.get_models()) if self.manifest else 0,  # type: ignore
-                    "source_count": len(self.manifest.get_sources()) if self.manifest else 0,  # type: ignore
+                    "project_name": self.manifest.get_project_info()["project_name"] if self.manifest else None,
+                    "model_count": len(self.manifest.get_models()) if self.manifest else 0,
+                    "source_count": len(self.manifest.get_sources()) if self.manifest else 0,
                 }
             except Exception as e:
                 return {

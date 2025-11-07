@@ -171,3 +171,9 @@ temp_summary/
 
 # UV
 uv.lock
+
+# DBT artifacts
+examples/jaffle_shop/logs/
+examples/jaffle_shop/target/
+examples/jaffle_shop/*.duckdb
+examples/jaffle_shop/*.duckdb.wal

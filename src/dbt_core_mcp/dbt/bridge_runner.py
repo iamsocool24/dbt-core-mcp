@@ -9,6 +9,7 @@ import json
 import logging
 import subprocess
 from pathlib import Path
+from typing import Any
 
 from ..utils.process_check import is_dbt_running, wait_for_dbt_completion
 from .runner import DbtRunnerResult
@@ -37,8 +38,8 @@ class BridgeRunner:
         self.project_dir = project_dir.resolve()  # Ensure absolute path
         self.python_command = python_command
         self._target_dir = self.project_dir / "target"
-        self._project_config = None  # Lazy-loaded project configuration
-        self._project_config_mtime = None  # Track last modification time
+        self._project_config: dict[str, Any] | None = None  # Lazy-loaded project configuration
+        self._project_config_mtime: float | None = None  # Track last modification time
 
         # Detect profiles directory (project dir or ~/.dbt)
         self.profiles_dir = self.project_dir if (self.project_dir / "profiles.yml").exists() else Path.home() / ".dbt"
@@ -64,7 +65,8 @@ class BridgeRunner:
             if self._project_config is None or self._project_config_mtime != current_mtime:
                 try:
                     with open(project_file) as f:
-                        self._project_config = yaml.safe_load(f) or {}
+                        loaded_config = yaml.safe_load(f)
+                        self._project_config = loaded_config if isinstance(loaded_config, dict) else {}
                     self._project_config_mtime = current_mtime
                 except Exception as e:
                     logger.warning(f"Failed to parse dbt_project.yml: {e}")
@@ -74,7 +76,7 @@ class BridgeRunner:
             self._project_config = {}
             self._project_config_mtime = None
 
-        return self._project_config
+        return self._project_config if self._project_config is not None else {}
 
     def invoke(self, args: list[str]) -> DbtRunnerResult:
         """
