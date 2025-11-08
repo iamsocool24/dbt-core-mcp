@@ -470,11 +470,7 @@ class DbtCoreMcpServer:
         include_database_schema: bool = True,
         include_compiled_sql: bool = True,
     ) -> dict[str, Any]:
-        """Tool implementation for get_resource_info.
-
-        This method contains the business logic for retrieving resource information,
-        including triggering compilation and querying database schema when needed.
-        """
+        """Implementation for get_resource_info tool."""
         try:
             # Get resource info with manifest method (handles basic enrichment)
             result = self.manifest.get_resource_info(  # type: ignore
@@ -530,6 +526,20 @@ class DbtCoreMcpServer:
             List of resource dictionaries with consistent structure
         """
         return self.manifest.get_resources(resource_type)  # type: ignore
+
+    async def toolImpl_get_lineage(self, name: str, resource_type: str | None = None, direction: str = "both", depth: int | None = None) -> dict[str, Any]:
+        """Implementation for get_lineage tool."""
+        try:
+            return self.manifest.get_lineage(name, resource_type, direction, depth)  # type: ignore
+        except ValueError as e:
+            raise ValueError(f"Lineage error: {e}")
+
+    async def toolImpl_analyze_impact(self, name: str, resource_type: str | None = None) -> dict[str, Any]:
+        """Implementation for analyze_impact tool."""
+        try:
+            return self.manifest.analyze_impact(name, resource_type)  # type: ignore
+        except ValueError as e:
+            raise ValueError(f"Impact analysis error: {e}")
 
     def _register_tools(self) -> None:
         """Register all dbt tools."""
@@ -724,12 +734,7 @@ class DbtCoreMcpServer:
                 get_lineage("jaffle_shop.orders", "source", "downstream", 2) -> 2 levels of dependents
             """
             await self._ensure_initialized_with_context(ctx)
-
-            try:
-                result = self.manifest.get_lineage(name, resource_type, direction, depth)  # type: ignore
-                return result
-            except ValueError as e:
-                raise ValueError(f"Lineage error: {e}")
+            return await self.toolImpl_get_lineage(name, resource_type, direction, depth)
 
         @self.app.tool()
         async def analyze_impact(
@@ -774,12 +779,7 @@ class DbtCoreMcpServer:
                 analyze_impact("raw_customers", "seed") -> impact of seed data change
             """
             await self._ensure_initialized_with_context(ctx)
-
-            try:
-                result = self.manifest.analyze_impact(name, resource_type)  # type: ignore
-                return result
-            except ValueError as e:
-                raise ValueError(f"Impact analysis error: {e}")
+            return await self.toolImpl_analyze_impact(name, resource_type)
 
         @self.app.tool()
         async def query_database(ctx: Context, sql: str, limit: int | None = None) -> dict[str, Any]:
