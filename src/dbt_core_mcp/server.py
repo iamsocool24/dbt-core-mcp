@@ -21,7 +21,7 @@ from fastmcp.server.middleware.rate_limiting import RateLimitingMiddleware
 
 from .dbt.bridge_runner import BridgeRunner
 from .dbt.manifest import ManifestLoader
-from .utils.env_detector import detect_dbt_adapter, detect_python_command
+from .utils.env_detector import detect_python_command
 
 logger = logging.getLogger(__name__)
 
@@ -228,10 +228,6 @@ class DbtCoreMcpServer:
             # Detect Python command for user's environment
             python_cmd = detect_python_command(self.project_dir)
             logger.info(f"Detected Python command: {python_cmd}")
-
-            # Detect dbt adapter type
-            self.adapter_type = detect_dbt_adapter(self.project_dir)
-            logger.info(f"Detected adapter: {self.adapter_type}")
 
             # Create bridge runner
             self.runner = BridgeRunner(self.project_dir, python_cmd, timeout=self.timeout)
@@ -547,7 +543,6 @@ class DbtCoreMcpServer:
         info = self.manifest.get_project_info()  # type: ignore
         info["project_dir"] = str(self.project_dir)
         info["profiles_dir"] = self.profiles_dir
-        info["adapter_type"] = self.adapter_type
         info["status"] = "ready"
 
         # Run full dbt debug if requested (default behavior)
@@ -579,6 +574,59 @@ class DbtCoreMcpServer:
             info["diagnostics"] = diagnostics
 
         return info
+
+    async def toolImpl_query_database(self, sql: str, limit: int | None = None) -> dict[str, Any]:
+        """Implementation for query_database tool."""
+        # Execute query using dbt show --inline
+        result = await self.runner.invoke_query(sql, limit)  # type: ignore
+
+        if not result.success:
+            error_msg = str(result.exception) if result.exception else "Unknown error"
+            return {
+                "error": error_msg,
+                "status": "failed",
+            }
+
+        # Parse JSON output from dbt show
+        import json
+        import re
+
+        output = result.stdout if hasattr(result, "stdout") else ""
+
+        try:
+            # dbt show --output json returns: {"show": [...rows...]}
+            # Find the JSON object (look for {"show": pattern)
+            json_match = re.search(r'\{\s*"show"\s*:\s*\[', output)
+            if not json_match:
+                return {
+                    "error": "No JSON output found in dbt show response",
+                    "status": "failed",
+                }
+
+            # Use JSONDecoder to parse just the first complete JSON object
+            # This handles extra data after the JSON (like log lines)
+            decoder = json.JSONDecoder()
+            data, _ = decoder.raw_decode(output, json_match.start())
+
+            if "show" in data:
+                return {
+                    "rows": data["show"],
+                    "row_count": len(data["show"]),
+                    "status": "success",
+                }
+            else:
+                return {
+                    "error": "Unexpected JSON format from dbt show",
+                    "status": "failed",
+                    "data": data,
+                }
+
+        except json.JSONDecodeError as e:
+            return {
+                "status": "error",
+                "message": f"Failed to parse query results: {e}",
+                "raw_output": output[:500],
+            }
 
     def _register_tools(self) -> None:
         """Register all dbt tools."""
@@ -801,60 +849,7 @@ class DbtCoreMcpServer:
                 Query results with rows in JSON format
             """
             await self._ensure_initialized_with_context(ctx)
-
-            if not self.adapter_type:
-                raise RuntimeError("Adapter type not detected")
-
-            # Execute query using dbt show --inline
-            result = await self.runner.invoke_query(sql, limit)  # type: ignore
-
-            if not result.success:
-                error_msg = str(result.exception) if result.exception else "Unknown error"
-                return {
-                    "error": error_msg,
-                    "status": "failed",
-                }
-
-            # Parse JSON output from dbt show
-            import json
-            import re
-
-            output = result.stdout if hasattr(result, "stdout") else ""
-
-            try:
-                # dbt show --output json returns: {"show": [...rows...]}
-                # Find the JSON object (look for {"show": pattern)
-                json_match = re.search(r'\{\s*"show"\s*:\s*\[', output)
-                if not json_match:
-                    return {
-                        "error": "No JSON output found in dbt show response",
-                        "status": "failed",
-                    }
-
-                # Use JSONDecoder to parse just the first complete JSON object
-                # This handles extra data after the JSON (like log lines)
-                decoder = json.JSONDecoder()
-                data, _ = decoder.raw_decode(output, json_match.start())
-
-                if "show" in data:
-                    return {
-                        "rows": data["show"],
-                        "row_count": len(data["show"]),
-                        "status": "success",
-                    }
-                else:
-                    return {
-                        "error": "Unexpected JSON format from dbt show",
-                        "status": "failed",
-                        "data": data,
-                    }
-
-            except json.JSONDecodeError as e:
-                return {
-                    "status": "error",
-                    "message": f"Failed to parse query results: {e}",
-                    "raw_output": output[:500],
-                }
+            return await self.toolImpl_query_database(sql, limit)
 
         @self.app.tool()
         async def run_models(
