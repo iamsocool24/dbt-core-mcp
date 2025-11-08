@@ -530,17 +530,33 @@ class DbtCoreMcpServer:
                     - "snapshot": SCD Type 2 historical tables
                     - "test": Data quality tests
                     - "analysis": Ad-hoc analysis queries
+                    - "macro": Jinja macros (includes macros from installed packages)
                     - None: Return all resources (default)
 
             Returns:
                 List of resource dictionaries with consistent structure across types.
                 Each resource includes: name, unique_id, resource_type, description, tags, etc.
 
+            Package Discovery:
+                Use resource_type="macro" to discover installed dbt packages.
+                Macros follow the naming pattern: macro.{package_name}.{macro_name}
+                
+                Example - Check if dbt_utils is installed:
+                    macros = list_resources("macro")
+                    has_dbt_utils = any(m["unique_id"].startswith("macro.dbt_utils.") for m in macros)
+                
+                Example - List all installed packages:
+                    macros = list_resources("macro")
+                    packages = {m["unique_id"].split(".")[1] for m in macros 
+                               if m["unique_id"].startswith("macro.") and 
+                               m["unique_id"].split(".")[1] != "dbt"}
+
             Examples:
                 list_resources() -> all resources
                 list_resources("model") -> only models
                 list_resources("source") -> only sources
                 list_resources("test") -> only tests
+                list_resources("macro") -> all macros (discover installed packages)
             """
             self._ensure_initialized()
 
