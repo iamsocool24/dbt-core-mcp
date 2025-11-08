@@ -1022,6 +1022,48 @@ class DbtCoreMcpServer:
             "elapsed_time": run_results.get("elapsed_time"),
         }
 
+    async def toolImpl_install_deps(self) -> dict[str, Any]:
+        """Implementation of install_deps tool."""
+        # Execute dbt deps
+        logger.info("Running dbt deps to install packages")
+        result = await self.runner.invoke(["deps"])  # type: ignore
+
+        if not result.success:
+            error_msg = str(result.exception) if result.exception else "deps failed"
+            return {
+                "status": "error",
+                "message": error_msg,
+                "command": "dbt deps",
+            }
+
+        # Reload manifest to pick up newly installed packages
+        logger.info("Reloading manifest to include new packages")
+        await self.manifest.load()  # type: ignore
+
+        # Get list of installed packages by checking for package macros
+        installed_packages = set()
+        assert self.manifest is not None
+        manifest_dict = self.manifest.get_manifest_dict()
+        macros = manifest_dict.get("macros", {})
+        project_name = manifest_dict.get("metadata", {}).get("project_name", "")
+
+        for unique_id in macros:
+            # macro.package_name.macro_name format
+            if unique_id.startswith("macro."):
+                parts = unique_id.split(".")
+                if len(parts) >= 2:
+                    package_name = parts[1]
+                    # Exclude built-in dbt package and project package
+                    if package_name != "dbt" and package_name != project_name:
+                        installed_packages.add(package_name)
+
+        return {
+            "status": "success",
+            "command": "dbt deps",
+            "installed_packages": sorted(installed_packages),
+            "message": f"Successfully installed {len(installed_packages)} package(s)",
+        }
+
     def _register_tools(self) -> None:
         """Register all dbt tools."""
 
@@ -1460,44 +1502,7 @@ class DbtCoreMcpServer:
             It enables the LLM to act on its own recommendations mid-conversation.
             """
             await self._ensure_initialized_with_context(ctx)
-
-            # Execute dbt deps
-            logger.info("Running dbt deps to install packages")
-            result = await self.runner.invoke(["deps"])  # type: ignore
-
-            if not result.success:
-                error_msg = str(result.exception) if result.exception else "deps failed"
-                return {
-                    "status": "error",
-                    "message": error_msg,
-                    "command": "dbt deps",
-                }
-
-            # Reload manifest to pick up newly installed packages
-            logger.info("Reloading manifest to include new packages")
-            await self.manifest.load()  # type: ignore
-
-            # Get list of installed packages by checking for package macros
-            installed_packages = set()
-            resources = self.manifest.get_resources("macro")  # type: ignore
-
-            for resource in resources:
-                unique_id = resource.get("unique_id", "")
-                # macro.package_name.macro_name format
-                if unique_id.startswith("macro."):
-                    parts = unique_id.split(".")
-                    if len(parts) >= 2:
-                        package_name = parts[1]
-                        # Exclude built-in dbt package
-                        if package_name != "dbt":
-                            installed_packages.add(package_name)
-
-            return {
-                "status": "success",
-                "command": "dbt deps",
-                "installed_packages": sorted(installed_packages),
-                "message": f"Successfully installed {len(installed_packages)} package(s)",
-            }
+            return await self.toolImpl_install_deps()
 
         logger.info("Registered dbt tools")
 
