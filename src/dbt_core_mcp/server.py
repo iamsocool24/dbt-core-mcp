@@ -913,6 +913,78 @@ class DbtCoreMcpServer:
             "elapsed_time": run_results.get("elapsed_time"),
         }
 
+    async def toolImpl_seed_data(
+        self,
+        select: str | None = None,
+        exclude: str | None = None,
+        modified_only: bool = False,
+        modified_downstream: bool = False,
+        full_refresh: bool = False,
+        show: bool = False,
+    ) -> dict[str, Any]:
+        """Implementation of seed_data tool."""
+        # Validate: can't use both smart and manual selection
+        if (modified_only or modified_downstream) and select:
+            raise ValueError("Cannot use both modified_* flags and select parameter")
+
+        # Build command args
+        args = ["seed"]
+
+        # Handle smart selection
+        assert self.project_dir is not None
+        state_dir = self.project_dir / "target" / "state_last_run"
+
+        if modified_only or modified_downstream:
+            if not state_dir.exists():
+                return {
+                    "status": "error",
+                    "message": "No previous seed state found. Run without modified_* flags first to establish baseline.",
+                }
+
+            selector = "state:modified+" if modified_downstream else "state:modified"
+            args.extend(["-s", selector, "--state", "target/state_last_run"])
+
+        # Manual selection
+        elif select:
+            args.extend(["-s", select])
+
+        if exclude:
+            args.extend(["--exclude", exclude])
+
+        if full_refresh:
+            args.append("--full-refresh")
+
+        if show:
+            args.append("--show")
+
+        # Execute
+        logger.info(f"Running DBT seed with args: {args}")
+        result = await self.runner.invoke(args)  # type: ignore
+
+        if not result.success:
+            error_msg = str(result.exception) if result.exception else "Seed failed"
+            return {
+                "status": "error",
+                "message": error_msg,
+                "command": " ".join(args),
+            }
+
+        # Save state on success for next modified run
+        if result.success and self.project_dir:
+            state_dir.mkdir(parents=True, exist_ok=True)
+            manifest_path = self.runner.get_manifest_path()  # type: ignore
+            shutil.copy(manifest_path, state_dir / "manifest.json")
+
+        # Parse run_results.json for details
+        run_results = self._parse_run_results()
+
+        return {
+            "status": "success",
+            "command": " ".join(args),
+            "results": run_results.get("results", []),
+            "elapsed_time": run_results.get("elapsed_time"),
+        }
+
     def _register_tools(self) -> None:
         """Register all dbt tools."""
 
@@ -1289,67 +1361,7 @@ class DbtCoreMcpServer:
                 seed_data(select="raw_customers")  # Load specific seed
             """
             await self._ensure_initialized_with_context(ctx)
-
-            # Validate: can't use both smart and manual selection
-            if (modified_only or modified_downstream) and select:
-                raise ValueError("Cannot use both modified_* flags and select parameter")
-
-            # Build command args
-            args = ["seed"]
-
-            # Handle smart selection
-            state_dir = self.project_dir / "target" / "state_last_run"  # type: ignore
-
-            if modified_only or modified_downstream:
-                if not state_dir.exists():
-                    return {
-                        "status": "error",
-                        "message": "No previous seed state found. Run without modified_* flags first to establish baseline.",
-                    }
-
-                selector = "state:modified+" if modified_downstream else "state:modified"
-                args.extend(["-s", selector, "--state", "target/state_last_run"])
-
-            # Manual selection
-            elif select:
-                args.extend(["-s", select])
-
-            if exclude:
-                args.extend(["--exclude", exclude])
-
-            if full_refresh:
-                args.append("--full-refresh")
-
-            if show:
-                args.append("--show")
-
-            # Execute
-            logger.info(f"Running DBT seed with args: {args}")
-            result = await self.runner.invoke(args)  # type: ignore
-
-            if not result.success:
-                error_msg = str(result.exception) if result.exception else "Seed failed"
-                return {
-                    "status": "error",
-                    "message": error_msg,
-                    "command": " ".join(args),
-                }
-
-            # Save state on success for next modified run
-            if result.success and self.project_dir:
-                state_dir.mkdir(parents=True, exist_ok=True)
-                manifest_path = self.runner.get_manifest_path()  # type: ignore
-                shutil.copy(manifest_path, state_dir / "manifest.json")
-
-            # Parse run_results.json for details
-            run_results = self._parse_run_results()
-
-            return {
-                "status": "success",
-                "command": " ".join(args),
-                "results": run_results.get("results", []),
-                "elapsed_time": run_results.get("elapsed_time"),
-            }
+            return await self.toolImpl_seed_data(select, exclude, modified_only, modified_downstream, full_refresh, show)
 
         @self.app.tool()
         async def snapshot_models(
