@@ -1,5 +1,5 @@
 """
-Tests for unified domain-based tools (get_resource_info, list_resources).
+Tests for ManifestLoader helper methods (get_resource_node).
 """
 
 from typing import TYPE_CHECKING
