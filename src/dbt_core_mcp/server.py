@@ -541,6 +541,45 @@ class DbtCoreMcpServer:
         except ValueError as e:
             raise ValueError(f"Impact analysis error: {e}")
 
+    async def toolImpl_get_project_info(self, run_debug: bool = True) -> dict[str, Any]:
+        """Implementation for get_project_info tool."""
+        # Get project info from manifest
+        info = self.manifest.get_project_info()  # type: ignore
+        info["project_dir"] = str(self.project_dir)
+        info["profiles_dir"] = self.profiles_dir
+        info["adapter_type"] = self.adapter_type
+        info["status"] = "ready"
+
+        # Run full dbt debug if requested (default behavior)
+        if run_debug:
+            debug_result_obj = await self.runner.invoke(["debug"])  # type: ignore
+
+            # Convert DbtRunnerResult to dictionary
+            debug_result = {
+                "success": debug_result_obj.success,
+                "output": debug_result_obj.stdout if debug_result_obj.stdout else "",
+            }
+
+            # Parse the debug output
+            diagnostics: dict[str, Any] = {
+                "command_run": "dbt debug",
+                "success": debug_result.get("success", False),
+                "output": debug_result.get("output", ""),
+            }
+
+            # Extract connection status from output
+            output = str(debug_result.get("output", ""))
+            if "Connection test: [OK connection ok]" in output or "Connection test: OK" in output:
+                diagnostics["connection_status"] = "ok"
+            elif "Connection test: [ERROR" in output or "Connection test: FAIL" in output:
+                diagnostics["connection_status"] = "failed"
+            else:
+                diagnostics["connection_status"] = "unknown"
+
+            info["diagnostics"] = diagnostics
+
+        return info
+
     def _register_tools(self) -> None:
         """Register all dbt tools."""
 
@@ -558,43 +597,7 @@ class DbtCoreMcpServer:
                 Dictionary with project information and diagnostic results
             """
             await self._ensure_initialized_with_context(ctx)
-
-            # Get project info from manifest
-            info = self.manifest.get_project_info()  # type: ignore
-            info["project_dir"] = str(self.project_dir)
-            info["profiles_dir"] = self.profiles_dir
-            info["adapter_type"] = self.adapter_type
-            info["status"] = "ready"
-
-            # Run full dbt debug if requested (default behavior)
-            if run_debug:
-                debug_result_obj = await self.runner.invoke(["debug"])  # type: ignore
-
-                # Convert DbtRunnerResult to dictionary
-                debug_result = {
-                    "success": debug_result_obj.success,
-                    "output": debug_result_obj.stdout if debug_result_obj.stdout else "",
-                }
-
-                # Parse the debug output
-                diagnostics: dict[str, Any] = {
-                    "command_run": "dbt debug",
-                    "success": debug_result.get("success", False),
-                    "output": debug_result.get("output", ""),
-                }
-
-                # Extract connection status from output
-                output = str(debug_result.get("output", ""))
-                if "Connection test: [OK connection ok]" in output or "Connection test: OK" in output:
-                    diagnostics["connection_status"] = "ok"
-                elif "Connection test: [ERROR" in output or "Connection test: FAIL" in output:
-                    diagnostics["connection_status"] = "failed"
-                else:
-                    diagnostics["connection_status"] = "unknown"
-
-                info["diagnostics"] = diagnostics
-
-            return info
+            return await self.toolImpl_get_project_info(run_debug)
 
         @self.app.tool()
         async def list_resources(ctx: Context, resource_type: str | None = None) -> list[dict[str, Any]]:
