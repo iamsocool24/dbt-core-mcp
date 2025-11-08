@@ -5,6 +5,7 @@ Executes dbt commands in the user's Python environment via subprocess,
 using an inline Python script to invoke dbtRunner.
 """
 
+import asyncio
 import json
 import logging
 import subprocess
@@ -80,7 +81,7 @@ class BridgeRunner:
 
         return self._project_config if self._project_config is not None else {}
 
-    def invoke(self, args: list[str]) -> DbtRunnerResult:
+    async def invoke(self, args: list[str]) -> DbtRunnerResult:
         """
         Execute a dbt command via subprocess bridge.
 
@@ -112,14 +113,15 @@ class BridgeRunner:
 
         try:
             logger.info("Starting subprocess...")
-            result = subprocess.run(
+            result = await asyncio.to_thread(
+                subprocess.run,
                 full_command,
                 cwd=self.project_dir,
                 capture_output=True,
                 text=True,
                 check=False,
-                timeout=self.timeout,  # None = no timeout (default), or user-specified timeout
-                stdin=subprocess.DEVNULL,  # Ensure subprocess doesn't wait for input
+                timeout=self.timeout,
+                stdin=subprocess.DEVNULL,
             )
             logger.info(f"Subprocess completed with return code: {result.returncode}")
 
@@ -164,7 +166,7 @@ class BridgeRunner:
         """Get the path to the manifest.json file."""
         return self._target_dir / "manifest.json"
 
-    def invoke_query(self, sql: str, limit: int | None = None) -> DbtRunnerResult:
+    async def invoke_query(self, sql: str, limit: int | None = None) -> DbtRunnerResult:
         """
         Execute a SQL query using dbt show --inline.
 
@@ -193,11 +195,11 @@ class BridgeRunner:
         ]
 
         # Execute the command
-        result = self.invoke(args)
+        result = await self.invoke(args)
 
         return result
 
-    def invoke_compile(self, model_name: str, force: bool = False) -> DbtRunnerResult:
+    async def invoke_compile(self, model_name: str, force: bool = False) -> DbtRunnerResult:
         """
         Compile a specific model, optionally forcing recompilation.
 
@@ -230,7 +232,7 @@ class BridgeRunner:
         # Run compile for specific model
         logger.info(f"Compiling model: {model_name}")
         args = ["compile", "-s", model_name]
-        result = self.invoke(args)
+        result = await self.invoke(args)
 
         return result
 

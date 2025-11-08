@@ -76,7 +76,6 @@ class DbtCoreMcpServer:
         self.runner: BridgeRunner | None = None
         self.manifest: ManifestLoader | None = None
         self.adapter_type: str | None = None
-        self._initialized: bool = False
 
         # Add built-in FastMCP middleware (2.11.0)
         self.app.add_middleware(ErrorHandlingMiddleware())  # Handle errors first
@@ -214,12 +213,9 @@ class DbtCoreMcpServer:
 
         return False
 
-    def _initialize_dbt_components(self, force: bool = False) -> None:
-        """Initialize dbt runner and manifest loader.
+    async def _initialize_dbt_components(self) -> None:
+        """Initialize dbt runner and manifest loader."""
 
-        Args:
-            force: If True, always re-parse. If False, only parse if stale.
-        """
         if not self.project_dir:
             raise RuntimeError("Project directory not set")
 
@@ -236,42 +232,20 @@ class DbtCoreMcpServer:
             # Create bridge runner
             self.runner = BridgeRunner(self.project_dir, python_cmd, timeout=self.timeout)
 
-        # Check if we need to parse
-        should_parse = force or self._is_manifest_stale()
-
-        if should_parse:
-            # Run parse to generate/update manifest
-            logger.info("Running dbt parse to generate manifest...")
-            result = self.runner.invoke(["parse"])
-            if not result.success:
-                error_msg = str(result.exception) if result.exception else "Unknown error"
-                raise RuntimeError(f"Failed to parse dbt project: {error_msg}")
+        # Always parse when this method is called (caller already determined we need to reinitialize)
+        logger.info("Running dbt parse to generate manifest...")
+        result = await self.runner.invoke(["parse"])
+        if not result.success:
+            error_msg = str(result.exception) if result.exception else "Unknown error"
+            raise RuntimeError(f"Failed to parse dbt project: {error_msg}")
 
         # Initialize or reload manifest loader
         manifest_path = self.runner.get_manifest_path()
         if not self.manifest:
             self.manifest = ManifestLoader(manifest_path)
-        self.manifest.load()
+        await self.manifest.load()
 
-        self._initialized = True
         logger.info("dbt components initialized successfully")
-
-    def _ensure_initialized(self) -> None:
-        """Ensure dbt components are initialized before use.
-
-        On first call, detects project directory from explicit path or cwd.
-        If no explicit path was provided and workspace root detection is needed,
-        tools should call _ensure_initialized_with_context() instead.
-        """
-        if not self._initialized:
-            # Detect project directory on first use
-            if not self.project_dir:
-                self.project_dir = self._detect_project_dir()
-                logger.info(f"dbt project directory: {self.project_dir}")
-
-            if not self.project_dir:
-                raise RuntimeError("dbt project directory not set. The MCP server requires a workspace with a dbt_project.yml file.")
-            self._initialize_dbt_components()
 
     async def _ensure_initialized_with_context(self, ctx: Any) -> None:
         """Ensure dbt components are initialized, with optional workspace root detection.
@@ -279,21 +253,33 @@ class DbtCoreMcpServer:
         Args:
             ctx: FastMCP Context for accessing workspace roots
         """
-        if not self._initialized:
-            # Try to detect from workspace roots if no explicit path
-            if not self.project_dir and not self._explicit_project_dir:
-                workspace_root = await self._detect_workspace_roots(ctx)
-                if workspace_root:
-                    self.project_dir = workspace_root
+        # Always check for workspace changes, even if previously initialized
+        detected_workspace: Path | None = None
 
-            # Fall back to basic detection if needed
-            if not self.project_dir:
+        if not self._explicit_project_dir:
+            detected_workspace = await self._detect_workspace_roots(ctx)
+
+        # If workspace changed, reinitialize everything
+        if detected_workspace and detected_workspace != self.project_dir:
+            logger.info(f"Workspace changed from {self.project_dir} to {detected_workspace}, reinitializing...")
+            self.project_dir = detected_workspace
+            self.runner = None
+            self.manifest = None
+
+        # Ensure project directory is set (first time or after workspace change)
+        if not self.project_dir:
+            if detected_workspace:
+                self.project_dir = detected_workspace
+            else:
                 self.project_dir = self._detect_project_dir()
                 logger.info(f"dbt project directory: {self.project_dir}")
 
-            if not self.project_dir:
-                raise RuntimeError("dbt project directory not set. The MCP server requires a workspace with a dbt_project.yml file.")
-            self._initialize_dbt_components()
+        if not self.project_dir:
+            raise RuntimeError("dbt project directory not set. The MCP server requires a workspace with a dbt_project.yml file.")
+
+        # Initialize/re-initialize components if needed
+        if self._is_manifest_stale():
+            await self._initialize_dbt_components()
 
     def _parse_run_results(self) -> dict[str, Any]:
         """Parse target/run_results.json after dbt run/test/build.
@@ -406,7 +392,7 @@ class DbtCoreMcpServer:
             logger.warning(f"Failed to compare schemas: {e}")
             return {}
 
-    def _get_table_schema_from_db(self, model_name: str) -> list[dict[str, Any]]:
+    async def _get_table_schema_from_db(self, model_name: str) -> list[dict[str, Any]]:
         """Get full table schema from database using DESCRIBE.
 
         Args:
@@ -418,7 +404,7 @@ class DbtCoreMcpServer:
         """
         try:
             sql = f"DESCRIBE {{{{ ref('{model_name}') }}}}"
-            result = self.runner.invoke_query(sql, limit=None)  # type: ignore
+            result = await self.runner.invoke_query(sql, limit=None)  # type: ignore
 
             if not result.success or not result.stdout:
                 return []
@@ -442,7 +428,7 @@ class DbtCoreMcpServer:
             logger.warning(f"Failed to query table schema for {model_name}: {e}")
             return []
 
-    def _get_table_columns_from_db(self, model_name: str) -> list[str]:
+    async def _get_table_columns_from_db(self, model_name: str) -> list[str]:
         """Get actual column names from database table.
 
         Args:
@@ -451,7 +437,7 @@ class DbtCoreMcpServer:
         Returns:
             List of column names from the actual table
         """
-        schema = self._get_table_schema_from_db(model_name)
+        schema = await self._get_table_schema_from_db(model_name)
         if not schema:
             return []
 
@@ -465,6 +451,63 @@ class DbtCoreMcpServer:
 
         logger.info(f"Extracted {len(columns)} columns for {model_name}: {columns}")
         return sorted(columns)
+
+    async def toolImpl_get_resource_info(
+        self,
+        name: str,
+        resource_type: str | None = None,
+        include_database_schema: bool = True,
+        include_compiled_sql: bool = True,
+    ) -> dict[str, Any]:
+        """Tool implementation for get_resource_info.
+
+        This method contains the business logic for retrieving resource information,
+        including triggering compilation and querying database schema when needed.
+        """
+        try:
+            # Get resource info with manifest method (handles basic enrichment)
+            result = self.manifest.get_resource_info(  # type: ignore
+                name,
+                resource_type,
+                include_database_schema=False,  # We'll handle this below for database schema
+                include_compiled_sql=include_compiled_sql,
+            )
+
+            # Handle multiple matches case
+            if result.get("multiple_matches"):
+                return result
+
+            # Single match - check if we need to trigger compilation
+            node_type = result.get("resource_type")
+
+            if include_compiled_sql and node_type == "model":
+                # If compiled SQL requested but not available, trigger compilation
+                if result.get("compiled_sql") is None and not result.get("compiled_sql_cached"):
+                    logger.info(f"Compiling model: {name}")
+                    compile_result = await self.runner.invoke_compile(name, force=False)  # type: ignore
+
+                    if compile_result.success:
+                        # Reload manifest to get compiled code
+                        await self.manifest.load()  # type: ignore
+                        # Re-fetch the resource to get updated compiled_code
+                        result = self.manifest.get_resource_info(  # type: ignore
+                            name,
+                            resource_type,
+                            include_database_schema=False,
+                            include_compiled_sql=True,
+                        )
+
+            # Query database schema for applicable resource types
+            if include_database_schema and node_type in ("model", "seed", "snapshot"):
+                resource_name = result.get("name", name)
+                schema = await self._get_table_schema_from_db(resource_name)
+                if schema:
+                    result["database_columns"] = schema
+
+            return result
+
+        except ValueError as e:
+            raise ValueError(f"Resource not found: {e}")
 
     def _register_tools(self) -> None:
         """Register all dbt tools."""
@@ -493,7 +536,13 @@ class DbtCoreMcpServer:
 
             # Run full dbt debug if requested (default behavior)
             if run_debug:
-                debug_result = await self.runner.run_dbt_command(["debug"])  # type: ignore
+                debug_result_obj = await self.runner.invoke(["debug"])  # type: ignore
+
+                # Convert DbtRunnerResult to dictionary
+                debug_result = {
+                    "success": debug_result_obj.success,
+                    "output": debug_result_obj.stdout if debug_result_obj.stdout else "",
+                }
 
                 # Parse the debug output
                 diagnostics: dict[str, Any] = {
@@ -516,7 +565,7 @@ class DbtCoreMcpServer:
             return info
 
         @self.app.tool()
-        def list_resources(resource_type: str | None = None) -> list[dict[str, Any]]:
+        async def list_resources(ctx: Context, resource_type: str | None = None) -> list[dict[str, Any]]:
             """List all resources in the dbt project with optional filtering by type.
 
             This unified tool provides a consistent view across all dbt resource types.
@@ -558,12 +607,13 @@ class DbtCoreMcpServer:
                 list_resources("test") -> only tests
                 list_resources("macro") -> all macros (discover installed packages)
             """
-            self._ensure_initialized()
+            await self._ensure_initialized_with_context(ctx)
 
             return self.manifest.get_resources(resource_type)  # type: ignore
 
         @self.app.tool()
-        def get_resource_info(
+        async def get_resource_info(
+            ctx: Context,
             name: str,
             resource_type: str | None = None,
             include_database_schema: bool = True,
@@ -604,55 +654,12 @@ class DbtCoreMcpServer:
                 get_resource_info("test_unique_customers") -> find test
                 get_resource_info("customers", include_compiled_sql=True) -> include compiled SQL
             """
-            self._ensure_initialized()
-
-            try:
-                # Get resource info with manifest method (handles basic enrichment)
-                result = self.manifest.get_resource_info(  # type: ignore
-                    name,
-                    resource_type,
-                    include_database_schema=False,  # We'll handle this below for database schema
-                    include_compiled_sql=include_compiled_sql,
-                )
-
-                # Handle multiple matches case
-                if result.get("multiple_matches"):
-                    return result
-
-                # Single match - check if we need to trigger compilation
-                node_type = result.get("resource_type")
-
-                if include_compiled_sql and node_type == "model":
-                    # If compiled SQL requested but not available, trigger compilation
-                    if result.get("compiled_sql") is None and not result.get("compiled_sql_cached"):
-                        logger.info(f"Compiling model: {name}")
-                        compile_result = self.runner.invoke_compile(name, force=False)  # type: ignore
-
-                        if compile_result.success:
-                            # Reload manifest to get compiled code
-                            self.manifest.load()  # type: ignore
-                            # Re-fetch the resource to get updated compiled_code
-                            result = self.manifest.get_resource_info(  # type: ignore
-                                name,
-                                resource_type,
-                                include_database_schema=False,
-                                include_compiled_sql=True,
-                            )
-
-                # Query database schema for applicable resource types
-                if include_database_schema and node_type in ("model", "seed", "snapshot"):
-                    resource_name = result.get("name", name)
-                    schema = self._get_table_schema_from_db(resource_name)
-                    if schema:
-                        result["database_columns"] = schema
-
-                return result
-
-            except ValueError as e:
-                raise ValueError(f"Resource not found: {e}")
+            await self._ensure_initialized_with_context(ctx)
+            return await self.toolImpl_get_resource_info(name, resource_type, include_database_schema, include_compiled_sql)
 
         @self.app.tool()
-        def get_lineage(
+        async def get_lineage(
+            ctx: Context,
             name: str,
             resource_type: str | None = None,
             direction: str = "both",
@@ -695,7 +702,7 @@ class DbtCoreMcpServer:
                 get_lineage("customers", "model", "upstream") -> where customers model gets data
                 get_lineage("jaffle_shop.orders", "source", "downstream", 2) -> 2 levels of dependents
             """
-            self._ensure_initialized()
+            await self._ensure_initialized_with_context(ctx)
 
             try:
                 result = self.manifest.get_lineage(name, resource_type, direction, depth)  # type: ignore
@@ -704,7 +711,8 @@ class DbtCoreMcpServer:
                 raise ValueError(f"Lineage error: {e}")
 
         @self.app.tool()
-        def analyze_impact(
+        async def analyze_impact(
+            ctx: Context,
             name: str,
             resource_type: str | None = None,
         ) -> dict[str, Any]:
@@ -744,7 +752,7 @@ class DbtCoreMcpServer:
                 analyze_impact("jaffle_shop.orders", "source") -> impact of source change
                 analyze_impact("raw_customers", "seed") -> impact of seed data change
             """
-            self._ensure_initialized()
+            await self._ensure_initialized_with_context(ctx)
 
             try:
                 result = self.manifest.analyze_impact(name, resource_type)  # type: ignore
@@ -753,7 +761,7 @@ class DbtCoreMcpServer:
                 raise ValueError(f"Impact analysis error: {e}")
 
         @self.app.tool()
-        def query_database(sql: str, limit: int | None = None) -> dict[str, Any]:
+        async def query_database(ctx: Context, sql: str, limit: int | None = None) -> dict[str, Any]:
             """Execute a SQL query against the dbt project's database.
 
             Uses dbt show --inline to execute queries with full Jinja templating support.
@@ -768,13 +776,13 @@ class DbtCoreMcpServer:
             Returns:
                 Query results with rows in JSON format
             """
-            self._ensure_initialized()
+            await self._ensure_initialized_with_context(ctx)
 
             if not self.adapter_type:
                 raise RuntimeError("Adapter type not detected")
 
             # Execute query using dbt show --inline
-            result = self.runner.invoke_query(sql, limit)  # type: ignore
+            result = await self.runner.invoke_query(sql, limit)  # type: ignore
 
             if not result.success:
                 error_msg = str(result.exception) if result.exception else "Unknown error"
@@ -825,7 +833,8 @@ class DbtCoreMcpServer:
                 }
 
         @self.app.tool()
-        def run_models(
+        async def run_models(
+            ctx: Context,
             select: str | None = None,
             exclude: str | None = None,
             modified_only: bool = False,
@@ -863,7 +872,7 @@ class DbtCoreMcpServer:
                 - run_models(select="tag:mart", full_refresh=True) - Full refresh marts
                 - run_models(modified_only=True, check_schema_changes=True) - Detect schema changes
             """
-            self._ensure_initialized()
+            await self._ensure_initialized_with_context(ctx)
 
             # Validate: can't use both smart and manual selection
             if (modified_only or modified_downstream) and select:
@@ -917,7 +926,7 @@ class DbtCoreMcpServer:
 
                 # Get list of models
                 logger.info(f"Getting model list for schema change detection: {list_args}")
-                list_result = self.runner.invoke(list_args)  # type: ignore
+                list_result = await self.runner.invoke(list_args)  # type: ignore
 
                 if list_result.success and list_result.stdout:
                     # Parse model names from output (one per line with --output name)
@@ -936,7 +945,7 @@ class DbtCoreMcpServer:
                         model_name = line
                         # Query pre-run columns
                         logger.info(f"Querying pre-run columns for {model_name}")
-                        cols = self._get_table_columns_from_db(model_name)
+                        cols = await self._get_table_columns_from_db(model_name)
                         if cols:
                             pre_run_columns[model_name] = cols
                         else:
@@ -945,7 +954,7 @@ class DbtCoreMcpServer:
 
             # Execute
             logger.info(f"Running dbt models with args: {args}")
-            result = self.runner.invoke(args)  # type: ignore
+            result = await self.runner.invoke(args)  # type: ignore
 
             if not result.success:
                 error_msg = str(result.exception) if result.exception else "Run failed"
@@ -965,7 +974,7 @@ class DbtCoreMcpServer:
 
                 for model_name, old_columns in pre_run_columns.items():
                     # Query post-run columns from database
-                    new_columns = self._get_table_columns_from_db(model_name)
+                    new_columns = await self._get_table_columns_from_db(model_name)
 
                     if not new_columns:
                         # Model failed to build or was skipped
@@ -1002,7 +1011,8 @@ class DbtCoreMcpServer:
             return response
 
         @self.app.tool()
-        def test_models(
+        async def test_models(
+            ctx: Context,
             select: str | None = None,
             exclude: str | None = None,
             modified_only: bool = False,
@@ -1029,7 +1039,7 @@ class DbtCoreMcpServer:
             Returns:
                 Test results with status and failures
             """
-            self._ensure_initialized()
+            await self._ensure_initialized_with_context(ctx)
 
             # Validate: can't use both smart and manual selection
             if (modified_only or modified_downstream) and select:
@@ -1065,7 +1075,7 @@ class DbtCoreMcpServer:
 
             # Execute
             logger.info(f"Running dbt tests with args: {args}")
-            result = self.runner.invoke(args)  # type: ignore
+            result = await self.runner.invoke(args)  # type: ignore
 
             if not result.success:
                 error_msg = str(result.exception) if result.exception else "Tests failed"
@@ -1086,7 +1096,8 @@ class DbtCoreMcpServer:
             }
 
         @self.app.tool()
-        def build_models(
+        async def build_models(
+            ctx: Context,
             select: str | None = None,
             exclude: str | None = None,
             modified_only: bool = False,
@@ -1115,7 +1126,7 @@ class DbtCoreMcpServer:
             Returns:
                 Build results with status, models run/tested, and timing info
             """
-            self._ensure_initialized()
+            await self._ensure_initialized_with_context(ctx)
 
             # Validate: can't use both smart and manual selection
             if (modified_only or modified_downstream) and select:
@@ -1154,7 +1165,7 @@ class DbtCoreMcpServer:
 
             # Execute
             logger.info(f"Running DBT build with args: {args}")
-            result = self.runner.invoke(args)  # type: ignore
+            result = await self.runner.invoke(args)  # type: ignore
 
             if not result.success:
                 error_msg = str(result.exception) if result.exception else "Build failed"
@@ -1181,7 +1192,8 @@ class DbtCoreMcpServer:
             }
 
         @self.app.tool()
-        def seed_data(
+        async def seed_data(
+            ctx: Context,
             select: str | None = None,
             exclude: str | None = None,
             modified_only: bool = False,
@@ -1222,7 +1234,7 @@ class DbtCoreMcpServer:
                 seed_data(modified_only=True)  # Load only changed CSVs
                 seed_data(select="raw_customers")  # Load specific seed
             """
-            self._ensure_initialized()
+            await self._ensure_initialized_with_context(ctx)
 
             # Validate: can't use both smart and manual selection
             if (modified_only or modified_downstream) and select:
@@ -1259,7 +1271,7 @@ class DbtCoreMcpServer:
 
             # Execute
             logger.info(f"Running DBT seed with args: {args}")
-            result = self.runner.invoke(args)  # type: ignore
+            result = await self.runner.invoke(args)  # type: ignore
 
             if not result.success:
                 error_msg = str(result.exception) if result.exception else "Seed failed"
@@ -1286,7 +1298,8 @@ class DbtCoreMcpServer:
             }
 
         @self.app.tool()
-        def snapshot_models(
+        async def snapshot_models(
+            ctx: Context,
             select: str | None = None,
             exclude: str | None = None,
         ) -> dict[str, Any]:
@@ -1313,11 +1326,9 @@ class DbtCoreMcpServer:
                 snapshot_models(select="tag:hourly")  # Run snapshots tagged 'hourly'
 
             Note: Snapshots do not support smart selection (modified_only/modified_downstream)
-            because they are time-dependent, not change-dependent.
+                because they are time-dependent, not change-dependent.
             """
-            self._ensure_initialized()
-
-            # Build command args
+            await self._ensure_initialized_with_context(ctx)  # Build command args
             args = ["snapshot"]
 
             if select:
@@ -1328,7 +1339,7 @@ class DbtCoreMcpServer:
 
             # Execute
             logger.info(f"Running DBT snapshot with args: {args}")
-            result = self.runner.invoke(args)  # type: ignore
+            result = await self.runner.invoke(args)  # type: ignore
 
             if not result.success:
                 error_msg = str(result.exception) if result.exception else "Snapshot failed"
@@ -1349,7 +1360,7 @@ class DbtCoreMcpServer:
             }
 
         @self.app.tool()
-        def install_deps() -> dict[str, Any]:
+        async def install_deps(ctx: Context) -> dict[str, Any]:
             """Install dbt packages defined in packages.yml.
 
             This tool enables interactive workflow where an LLM can:
@@ -1373,11 +1384,11 @@ class DbtCoreMcpServer:
             Note: This is an interactive development tool, not infrastructure automation.
             It enables the LLM to act on its own recommendations mid-conversation.
             """
-            self._ensure_initialized()
+            await self._ensure_initialized_with_context(ctx)
 
             # Execute dbt deps
             logger.info("Running dbt deps to install packages")
-            result = self.runner.invoke(["deps"])  # type: ignore
+            result = await self.runner.invoke(["deps"])  # type: ignore
 
             if not result.success:
                 error_msg = str(result.exception) if result.exception else "deps failed"
@@ -1389,7 +1400,7 @@ class DbtCoreMcpServer:
 
             # Reload manifest to pick up newly installed packages
             logger.info("Reloading manifest to include new packages")
-            self.manifest.load()  # type: ignore
+            await self.manifest.load()  # type: ignore
 
             # Get list of installed packages by checking for package macros
             installed_packages = set()

@@ -65,7 +65,7 @@ test_profile:
 
 
 @pytest.fixture
-def jaffle_shop_server():
+async def jaffle_shop_server():
     """Create a server instance with the jaffle_shop example project."""
     from pathlib import Path
 
@@ -74,5 +74,6 @@ def jaffle_shop_server():
     # Use the example jaffle_shop project
     project_dir = Path(__file__).parent.parent / "examples" / "jaffle_shop"
     server = create_server(str(project_dir))
-    server._ensure_initialized()  # pyright: ignore[reportPrivateUsage]
+    # Initialize with a mock context (no workspace roots for tests)
+    await server._ensure_initialized_with_context(None)  # pyright: ignore[reportPrivateUsage]
     return server

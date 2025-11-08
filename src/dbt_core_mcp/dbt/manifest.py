@@ -5,6 +5,7 @@ Reads and parses DBT's manifest.json file to provide structured access
 to models, sources, tests, and other DBT entities.
 """
 
+import asyncio
 import json
 import logging
 from dataclasses import dataclass
@@ -64,14 +65,18 @@ class ManifestLoader:
         self.manifest_path = manifest_path
         self._manifest: dict[str, Any] | None = None
 
-    def load(self) -> None:
+    async def load(self) -> None:
         """Load the manifest from disk."""
         if not self.manifest_path.exists():
             raise FileNotFoundError(f"Manifest not found: {self.manifest_path}")
 
         logger.debug(f"Loading manifest from {self.manifest_path}")
-        with open(self.manifest_path, "r") as f:
-            self._manifest = json.load(f)
+
+        def _read_manifest() -> dict[str, Any]:
+            with open(self.manifest_path, "r") as f:
+                return json.load(f)
+
+        self._manifest = await asyncio.to_thread(_read_manifest)
         logger.info("Manifest loaded successfully")
 
     def get_resources(self, resource_type: str | None = None) -> list[dict[str, Any]]:
