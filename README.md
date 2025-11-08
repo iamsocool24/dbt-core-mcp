@@ -422,7 +422,7 @@ Execute SQL queries against your database using dbt's ref() and source() functio
 - `sql`: SQL query with optional {{ ref() }} and {{ source() }} functions
 - `limit`: Maximum rows to return (optional, defaults to unlimited)
 
-### Model Execution
+### Execution Tools
 
 #### `run_models`
 Run dbt models with smart selection for fast development.
@@ -552,6 +552,36 @@ Snapshots track historical changes by recording when records were first seen, wh
 - `exclude`: Exclude snapshots
 
 **Note:** Snapshots are time-based and should be run on a schedule (e.g., daily/hourly), not during interactive development. They do not support smart selection.
+
+#### `install_deps`
+Install dbt packages defined in packages.yml to enable interactive package management workflow.
+
+>&nbsp;  
+>You: *"I need to use dbt_utils macros"*  
+>Copilot: *Checks if installed, adds to packages.yml, runs install_deps()*
+>
+>You: *"Install the packages defined in packages.yml"*  
+>Copilot: *Executes dbt deps and shows installed packages*
+>
+>You: *"Add dbt_utils and install it"*  
+>Copilot: *Edits packages.yml, runs install_deps(), ready to use macros*  
+>&nbsp;
+
+This tool enables a complete workflow where Copilot can:
+1. Suggest using a dbt package (e.g., dbt_utils)
+2. Edit packages.yml to add the package
+3. Run install_deps() to install it
+4. Write code that uses the package's macros
+
+All without breaking conversation flow.
+
+**Returns:** Installation status and list of installed packages
+
+**Package Discovery:**
+Use `list_resources(type="macro")` to see which packages are already installed.
+Macros follow the pattern `macro.{package_name}.{macro_name}`.
+
+**Note:** This is an interactive development tool (like run_models/test_models), not infrastructure automation. It enables Copilot to complete its own recommendations mid-conversation.
 
 ## Developer Workflow
 
