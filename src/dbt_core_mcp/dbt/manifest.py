@@ -9,6 +9,7 @@ import json
 import logging
 from dataclasses import dataclass
 from pathlib import Path
+from typing import Any
 
 logger = logging.getLogger(__name__)
 
@@ -61,7 +62,7 @@ class ManifestLoader:
             manifest_path: Path to manifest.json file
         """
         self.manifest_path = manifest_path
-        self._manifest: dict | None = None
+        self._manifest: dict[str, Any] | None = None
 
     def load(self) -> None:
         """Load the manifest from disk."""
@@ -155,7 +156,7 @@ class ManifestLoader:
                 return model
         return None
 
-    def get_model_node(self, name: str) -> dict:
+    def get_model_node(self, name: str) -> dict[str, Any]:
         """
         Get the raw manifest node for a model by name.
 
@@ -175,9 +176,9 @@ class ManifestLoader:
         if not self._manifest:
             raise RuntimeError("Manifest not loaded. Call load() first.")
 
-        nodes = self._manifest.get("nodes", {})
-        for unique_id, node in nodes.items():
-            if node.get("resource_type") == "model" and node.get("name") == name:
+        nodes: dict[str, Any] = self._manifest.get("nodes", {})  # type: ignore[assignment]
+        for _, node in nodes.items():
+            if isinstance(node, dict) and node.get("resource_type") == "model" and node.get("name") == name:
                 return dict(node)  # type cast to satisfy type checker
 
         raise ValueError(f"Model '{name}' not found in manifest")
@@ -199,7 +200,7 @@ class ManifestLoader:
         node = self.get_model_node(name)  # Will raise ValueError if not found
         return node.get("compiled_code")
 
-    def get_source_node(self, source_name: str, table_name: str) -> dict:
+    def get_source_node(self, source_name: str, table_name: str) -> dict[str, Any]:
         """
         Get the raw manifest node for a source by source name and table name.
 
@@ -220,14 +221,14 @@ class ManifestLoader:
         if not self._manifest:
             raise RuntimeError("Manifest not loaded. Call load() first.")
 
-        sources = self._manifest.get("sources", {})
-        for unique_id, source in sources.items():
-            if source.get("source_name") == source_name and source.get("name") == table_name:
+        sources: dict[str, Any] = self._manifest.get("sources", {})  # type: ignore[assignment]
+        for _, source in sources.items():
+            if isinstance(source, dict) and source.get("source_name") == source_name and source.get("name") == table_name:
                 return dict(source)  # type cast to satisfy type checker
 
         raise ValueError(f"Source '{source_name}.{table_name}' not found in manifest")
 
-    def get_project_info(self) -> dict:
+    def get_project_info(self) -> dict[str, Any]:
         """
         Get high-level project information from the manifest.
 
@@ -237,7 +238,7 @@ class ManifestLoader:
         if not self._manifest:
             raise RuntimeError("Manifest not loaded. Call load() first.")
 
-        metadata = self._manifest.get("metadata", {})
+        metadata: dict[str, Any] = self._manifest.get("metadata", {})  # type: ignore[assignment]
 
         return {
             "project_name": metadata.get("project_name", ""),
@@ -248,7 +249,7 @@ class ManifestLoader:
             "source_count": len(self.get_sources()),
         }
 
-    def get_manifest_dict(self) -> dict:
+    def get_manifest_dict(self) -> dict[str, Any]:
         """Get the raw manifest dictionary.
 
         Returns:
@@ -261,7 +262,7 @@ class ManifestLoader:
             raise RuntimeError("Manifest not loaded. Call load() first.")
         return self._manifest
 
-    def get_node_by_unique_id(self, unique_id: str) -> dict | None:
+    def get_node_by_unique_id(self, unique_id: str) -> dict[str, Any] | None:
         """Get a node (model, test, etc.) by its unique_id.
 
         Args:
@@ -285,7 +286,7 @@ class ManifestLoader:
 
         return None
 
-    def get_upstream_nodes(self, unique_id: str, max_depth: int | None = None, current_depth: int = 0) -> list[dict[str, object]]:
+    def get_upstream_nodes(self, unique_id: str, max_depth: int | None = None, current_depth: int = 0) -> list[dict[str, Any]]:
         """Get all upstream dependencies of a node recursively.
 
         Args:
@@ -306,7 +307,7 @@ class ManifestLoader:
         parent_map = self._manifest.get("parent_map", {})
         parents = parent_map.get(unique_id, [])
 
-        upstream: list[dict[str, object]] = []
+        upstream: list[dict[str, Any]] = []
         seen: set[str] = set()
 
         for parent_id in parents:
@@ -336,7 +337,7 @@ class ManifestLoader:
 
         return upstream
 
-    def get_downstream_nodes(self, unique_id: str, max_depth: int | None = None, current_depth: int = 0) -> list[dict[str, object]]:
+    def get_downstream_nodes(self, unique_id: str, max_depth: int | None = None, current_depth: int = 0) -> list[dict[str, Any]]:
         """Get all downstream dependents of a node recursively.
 
         Args:
@@ -357,7 +358,7 @@ class ManifestLoader:
         child_map = self._manifest.get("child_map", {})
         children = child_map.get(unique_id, [])
 
-        downstream: list[dict[str, object]] = []
+        downstream: list[dict[str, Any]] = []
         seen: set[str] = set()
 
         for child_id in children:

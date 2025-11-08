@@ -49,7 +49,7 @@ def is_dbt_running(project_dir: Path) -> bool:
 
                 # Look for actual dbt CLI usage: 'dbt run', 'dbt parse', 'python -m dbt.cli.main', etc.
                 is_dbt_command = False
-                for i, arg in enumerate(cmdline):
+                for arg in cmdline:
                     arg_lower = arg.lower()
                     # Check for 'dbt' as a standalone command or module
                     if arg_lower == "dbt" or arg_lower.endswith("dbt.exe") or arg_lower.endswith("dbt"):

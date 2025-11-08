@@ -295,7 +295,7 @@ class DBTCoreMCPServer:
                 raise RuntimeError("DBT project directory not set. The MCP server requires a workspace with a dbt_project.yml file.")
             self._initialize_dbt_components()
 
-    def _parse_run_results(self) -> dict[str, object]:
+    def _parse_run_results(self) -> dict[str, Any]:
         """Parse target/run_results.json after dbt run/test/build.
 
         Returns:
@@ -357,7 +357,7 @@ class DBTCoreMCPServer:
 
             current_manifest_data = self.manifest.get_manifest_dict()
 
-            schema_changes: dict[str, dict[str, object]] = {}
+            schema_changes: dict[str, dict[str, Any]] = {}
 
             for unique_id in model_unique_ids:
                 # Skip non-model nodes (like tests)
@@ -406,7 +406,7 @@ class DBTCoreMCPServer:
             logger.warning(f"Failed to compare schemas: {e}")
             return {}
 
-    def _get_table_schema_from_db(self, model_name: str) -> list[dict[str, object]]:
+    def _get_table_schema_from_db(self, model_name: str) -> list[dict[str, Any]]:
         """Get full table schema from database using DESCRIBE.
 
         Args:
@@ -470,7 +470,7 @@ class DBTCoreMCPServer:
         """Register all DBT tools."""
 
         @self.app.tool()
-        async def get_project_info(ctx: Context) -> dict[str, object]:
+        async def get_project_info(ctx: Context) -> dict[str, Any]:
             """Get information about the DBT project.
 
             Returns:
@@ -488,7 +488,7 @@ class DBTCoreMCPServer:
             return info
 
         @self.app.tool()
-        def list_models() -> list[dict[str, object]]:
+        def list_models() -> list[dict[str, Any]]:
             """List all models in the DBT project.
 
             Returns:
@@ -515,7 +515,7 @@ class DBTCoreMCPServer:
             ]
 
         @self.app.tool()
-        def get_model_info(name: str, include_database_schema: bool = True) -> dict[str, object]:
+        def get_model_info(name: str, include_database_schema: bool = True) -> dict[str, Any]:
             """Get detailed information about a specific DBT model.
 
             Returns the complete manifest node for a model, including all metadata,
@@ -552,7 +552,7 @@ class DBTCoreMCPServer:
                 raise ValueError(f"Model not found: {e}")
 
         @self.app.tool()
-        def list_sources() -> list[dict[str, object]]:
+        def list_sources() -> list[dict[str, Any]]:
             """List all sources in the DBT project.
 
             Returns:
@@ -577,7 +577,7 @@ class DBTCoreMCPServer:
             ]
 
         @self.app.tool()
-        def get_source_info(source_name: str, table_name: str) -> dict[str, object]:
+        def get_source_info(source_name: str, table_name: str) -> dict[str, Any]:
             """Get detailed information about a specific DBT source.
 
             Returns the complete manifest source node, including all metadata,
@@ -599,7 +599,7 @@ class DBTCoreMCPServer:
                 raise ValueError(f"Source not found: {e}")
 
         @self.app.tool()
-        def get_compiled_sql(name: str, force: bool = False) -> dict[str, object]:
+        def get_compiled_sql(name: str, force: bool = False) -> dict[str, Any]:
             """Get the compiled SQL for a specific DBT model.
 
             Returns the fully compiled SQL with all Jinja templating rendered
@@ -654,7 +654,7 @@ class DBTCoreMCPServer:
                 raise RuntimeError(f"Failed to get compiled SQL: {e}")
 
         @self.app.tool()
-        def query_database(sql: str, limit: int | None = None) -> dict[str, object]:
+        def query_database(sql: str, limit: int | None = None) -> dict[str, Any]:
             """Execute a SQL query against the DBT project's database.
 
             Uses dbt show --inline to execute queries with full Jinja templating support.
@@ -703,7 +703,7 @@ class DBTCoreMCPServer:
                 # Use JSONDecoder to parse just the first complete JSON object
                 # This handles extra data after the JSON (like log lines)
                 decoder = json.JSONDecoder()
-                data, idx = decoder.raw_decode(output, json_match.start())
+                data, _ = decoder.raw_decode(output, json_match.start())
 
                 if "show" in data:
                     return {
@@ -734,7 +734,7 @@ class DBTCoreMCPServer:
             full_refresh: bool = False,
             fail_fast: bool = False,
             check_schema_changes: bool = False,
-        ) -> dict[str, object]:
+        ) -> dict[str, Any]:
             """Run DBT models (compile SQL and execute against database).
 
             Smart selection modes for developers:
@@ -889,7 +889,7 @@ class DBTCoreMCPServer:
                 manifest_path = self.runner.get_manifest_path()  # type: ignore
                 shutil.copy(manifest_path, state_dir / "manifest.json")
 
-            response: dict[str, object] = {
+            response: dict[str, Any] = {
                 "status": "success",
                 "command": " ".join(args),
                 "results": run_results.get("results", []),
@@ -909,7 +909,7 @@ class DBTCoreMCPServer:
             modified_only: bool = False,
             modified_downstream: bool = False,
             fail_fast: bool = False,
-        ) -> dict[str, object]:
+        ) -> dict[str, Any]:
             """Run DBT tests on models and sources.
 
             Smart selection modes for developers:
@@ -994,7 +994,7 @@ class DBTCoreMCPServer:
             modified_downstream: bool = False,
             full_refresh: bool = False,
             fail_fast: bool = False,
-        ) -> dict[str, object]:
+        ) -> dict[str, Any]:
             """Run DBT build (run + test in DAG order).
 
             Smart selection modes for developers:
@@ -1089,7 +1089,7 @@ class DBTCoreMCPServer:
             modified_downstream: bool = False,
             full_refresh: bool = False,
             show: bool = False,
-        ) -> dict[str, object]:
+        ) -> dict[str, Any]:
             """Load seed data (CSV files) from seeds/ directory into database tables.
 
             Seeds are typically used for reference data like country codes, product categories, etc.
@@ -1191,7 +1191,7 @@ class DBTCoreMCPServer:
             names: str | list[str],
             direction: str = "both",
             depth: int | None = None,
-        ) -> dict[str, object]:
+        ) -> dict[str, Any]:
             """Get lineage (dependency tree) for one or more models.
 
             Shows upstream and/or downstream dependencies with configurable depth.
@@ -1237,7 +1237,7 @@ class DBTCoreMCPServer:
                 except ValueError as e:
                     raise ValueError(f"Model not found: {e}")
 
-                result: dict[str, object] = {
+                result: dict[str, Any] = {
                     "model": name,
                     "unique_id": unique_id,
                     "direction": direction,
@@ -1259,7 +1259,7 @@ class DBTCoreMCPServer:
                 return result
 
             # Handle multiple models case
-            models_lineage: list[dict[str, object]] = []
+            models_lineage: list[dict[str, Any]] = []
             all_upstream_ids: set[str] = set()
             all_downstream_ids: set[str] = set()
             errors: list[str] = []
@@ -1269,7 +1269,7 @@ class DBTCoreMCPServer:
                     node = self.manifest.get_model_node(name)  # type: ignore
                     unique_id = node["unique_id"]
 
-                    model_info: dict[str, object] = {
+                    model_info: dict[str, Any] = {
                         "model": name,
                         "unique_id": unique_id,
                     }
@@ -1296,7 +1296,7 @@ class DBTCoreMCPServer:
                     errors.append(f"Model '{name}': {e}")
 
             # Build combined result
-            result_multi: dict[str, object] = {
+            result_multi: dict[str, Any] = {
                 "models": model_names,
                 "model_count": len(model_names),
                 "direction": direction,
@@ -1318,7 +1318,7 @@ class DBTCoreMCPServer:
         @self.app.tool()
         def analyze_model_impact(
             names: str | list[str],
-        ) -> dict[str, object]:
+        ) -> dict[str, Any]:
             """Analyze the impact of changing one or more models.
 
             Shows all downstream dependencies that would be affected by changes,
@@ -1360,9 +1360,9 @@ class DBTCoreMCPServer:
                 downstream = self.manifest.get_downstream_nodes(unique_id, max_depth=None)  # type: ignore
 
                 # Categorize by resource type
-                models_affected: list[dict[str, object]] = []
-                tests_affected: list[dict[str, object]] = []
-                other_affected: list[dict[str, object]] = []
+                models_affected: list[dict[str, Any]] = []
+                tests_affected: list[dict[str, Any]] = []
+                other_affected: list[dict[str, Any]] = []
 
                 for dep in downstream:
                     dep_type = str(dep["type"])
@@ -1381,7 +1381,7 @@ class DBTCoreMCPServer:
                 if len(models_affected) == 0:
                     recommendation = f"dbt run -s {name}"  # just the model
 
-                result: dict[str, object] = {
+                result: dict[str, Any] = {
                     "model": name,
                     "unique_id": unique_id,
                     "impact": {
@@ -1407,10 +1407,10 @@ class DBTCoreMCPServer:
                 return result
 
             # Handle multiple models case - combined impact analysis
-            all_models_affected: dict[str, dict[str, object]] = {}  # unique_id -> node info
-            all_tests_affected: dict[str, dict[str, object]] = {}
-            all_other_affected: dict[str, dict[str, object]] = {}
-            per_model_impacts: list[dict[str, object]] = []
+            all_models_affected: dict[str, dict[str, Any]] = {}  # unique_id -> node info
+            all_tests_affected: dict[str, dict[str, Any]] = {}
+            all_other_affected: dict[str, dict[str, Any]] = {}
+            per_model_impacts: list[dict[str, Any]] = []
             errors: list[str] = []
 
             for name in model_names:
@@ -1421,9 +1421,9 @@ class DBTCoreMCPServer:
                     # Get all downstream dependencies
                     downstream = self.manifest.get_downstream_nodes(unique_id, max_depth=None)  # type: ignore
 
-                    models_for_this: list[dict[str, object]] = []
-                    tests_for_this: list[dict[str, object]] = []
-                    other_for_this: list[dict[str, object]] = []
+                    models_for_this: list[dict[str, Any]] = []
+                    tests_for_this: list[dict[str, Any]] = []
+                    other_for_this: list[dict[str, Any]] = []
 
                     for dep in downstream:
                         dep_id = str(dep["unique_id"])
@@ -1468,7 +1468,7 @@ class DBTCoreMCPServer:
             if len(all_models_affected) > 0:
                 recommendation += "+"  # Add + to include downstream
 
-            result_multi: dict[str, object] = {
+            result_multi: dict[str, Any] = {
                 "models": model_names,
                 "model_count": len(model_names),
                 "combined_impact": {
@@ -1502,7 +1502,7 @@ class DBTCoreMCPServer:
         def snapshot_models(
             select: str | None = None,
             exclude: str | None = None,
-        ) -> dict[str, object]:
+        ) -> dict[str, Any]:
             """Execute DBT snapshots to capture slowly changing dimensions (SCD Type 2).
 
             Snapshots track historical changes over time by recording:

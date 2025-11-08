@@ -47,7 +47,7 @@ class BridgeRunner:
         self.profiles_dir = self.project_dir if (self.project_dir / "profiles.yml").exists() else Path.home() / ".dbt"
         logger.info(f"Using profiles directory: {self.profiles_dir}")
 
-    def _get_project_config(self) -> dict:
+    def _get_project_config(self) -> dict[str, Any]:
         """
         Lazy-load and cache dbt_project.yml configuration.
         Reloads if file has been modified since last read.
