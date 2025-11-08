@@ -24,5 +24,16 @@ This file contains workspace-specific information for AI conversations.
   - APPLIES TO: All code commits in dbt-core-mcp workspace
   - VIOLATION PENALTY: Immediate acknowledgment and restart with correct procedure
   - NO EXCEPTIONS
+- Law 2 (Selective Testing Protocol):
+  - DO NOT run pytest during development "just to check" or "to verify"
+  - Tests are SLOW (5+ minutes for full suite) - respect user's time
+  - ONLY run pytest in these cases:
+    a) Pre-commit validation (Law 1 requirement)
+    b) Explicitly requested by user
+    c) After fixing a specific failing test (run that test only, not full suite)
+  - During development: rely on type checking (pyright) and linting (ruff)
+  - CI will catch test failures - don't waste time with redundant local test runs
+  - VIOLATION: Running tests "to make sure it works" or similar justifications
+  - NO EXCEPTIONS
 
 ## Memories

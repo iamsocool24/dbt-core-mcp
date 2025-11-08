@@ -8,7 +8,6 @@ using an inline Python script to invoke dbtRunner.
 import asyncio
 import json
 import logging
-import subprocess
 from pathlib import Path
 from typing import Any
 
@@ -111,55 +110,89 @@ class BridgeRunner:
         logger.info(f"Using Python: {self.python_command}")
         logger.info(f"Working directory: {self.project_dir}")
 
+        proc = None
         try:
             logger.info("Starting subprocess...")
-            result = await asyncio.to_thread(
-                subprocess.run,
-                full_command,
+            # Use create_subprocess_exec for proper async process handling
+            proc = await asyncio.create_subprocess_exec(
+                *full_command,
                 cwd=self.project_dir,
-                capture_output=True,
-                text=True,
-                check=False,
-                timeout=self.timeout,
-                stdin=subprocess.DEVNULL,
+                stdout=asyncio.subprocess.PIPE,
+                stderr=asyncio.subprocess.PIPE,
+                stdin=asyncio.subprocess.DEVNULL,
             )
-            logger.info(f"Subprocess completed with return code: {result.returncode}")
+
+            # Wait for completion with timeout
+            try:
+                stdout_bytes, stderr_bytes = await asyncio.wait_for(
+                    proc.communicate(),
+                    timeout=self.timeout,
+                )
+                stdout = stdout_bytes.decode("utf-8") if stdout_bytes else ""
+                stderr = stderr_bytes.decode("utf-8") if stderr_bytes else ""
+            except asyncio.TimeoutError:
+                # Kill process on timeout
+                logger.error(f"dbt command timed out after {self.timeout} seconds, killing process")
+                proc.kill()
+                await proc.wait()
+                return DbtRunnerResult(
+                    success=False,
+                    exception=RuntimeError(f"dbt command timed out after {self.timeout} seconds"),
+                )
+
+            returncode = proc.returncode
+            logger.info(f"Subprocess completed with return code: {returncode}")
 
             # Parse result from stdout
-            if result.returncode == 0:
+            if returncode == 0:
                 # Extract JSON from last line (DBT output may contain logs)
                 try:
-                    last_line = result.stdout.strip().split("\n")[-1]
+                    last_line = stdout.strip().split("\n")[-1]
                     output = json.loads(last_line)
                     success = output.get("success", False)
                     logger.info(f"dbt command {'succeeded' if success else 'failed'}: {args}")
-                    return DbtRunnerResult(success=success, stdout=result.stdout, stderr=result.stderr)
+                    return DbtRunnerResult(success=success, stdout=stdout, stderr=stderr)
                 except (json.JSONDecodeError, IndexError) as e:
                     # If no JSON output, check return code
-                    logger.warning(f"No JSON output from dbt command: {e}. stdout: {result.stdout[:200]}")
-                    return DbtRunnerResult(success=True, stdout=result.stdout, stderr=result.stderr)
+                    logger.warning(f"No JSON output from dbt command: {e}. stdout: {stdout[:200]}")
+                    return DbtRunnerResult(success=True, stdout=stdout, stderr=stderr)
             else:
                 # Non-zero return code indicates failure
-                error_msg = result.stderr.strip() if result.stderr else result.stdout.strip()
-                logger.error(f"dbt command failed with code {result.returncode}")
-                logger.debug(f"stdout: {result.stdout[:500]}")
-                logger.debug(f"stderr: {result.stderr[:500]}")
+                error_msg = stderr.strip() if stderr else stdout.strip()
+                logger.error(f"dbt command failed with code {returncode}")
+                logger.debug(f"stdout: {stdout[:500]}")
+                logger.debug(f"stderr: {stderr[:500]}")
 
                 # Try to extract meaningful error from stderr or stdout
-                if not error_msg and result.stdout:
-                    error_msg = result.stdout.strip()
+                if not error_msg and stdout:
+                    error_msg = stdout.strip()
 
                 return DbtRunnerResult(
                     success=False,
-                    exception=RuntimeError(f"dbt command failed (exit code {result.returncode}): {error_msg[:500]}"),
+                    exception=RuntimeError(f"dbt command failed (exit code {returncode}): {error_msg[:500]}"),
                 )
 
-        except subprocess.TimeoutExpired:
-            timeout_msg = f"dbt command timed out after {self.timeout} seconds: {args}"
-            logger.error(timeout_msg)
-            return DbtRunnerResult(success=False, exception=RuntimeError(f"dbt command timed out after {self.timeout} seconds"))
+        except asyncio.CancelledError:
+            # Handle cancellation - kill the subprocess
+            logger.warning(f"dbt command cancelled, terminating subprocess: {args}")
+            if proc and proc.returncode is None:
+                # Try graceful termination first
+                proc.terminate()
+                try:
+                    await asyncio.wait_for(proc.wait(), timeout=2.0)
+                    logger.info("Subprocess terminated gracefully")
+                except asyncio.TimeoutError:
+                    # Force kill if termination takes too long
+                    logger.warning("Subprocess didn't terminate, force killing")
+                    proc.kill()
+                    await proc.wait()
+            raise  # Re-raise to propagate cancellation
         except Exception as e:
             logger.exception(f"Error executing dbt command: {e}")
+            # Clean up process on unexpected errors
+            if proc and proc.returncode is None:
+                proc.kill()
+                await proc.wait()
             return DbtRunnerResult(success=False, exception=e)
 
     def get_manifest_path(self) -> Path:

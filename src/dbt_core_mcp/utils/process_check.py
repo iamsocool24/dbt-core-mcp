@@ -68,7 +68,10 @@ def is_dbt_running(project_dir: Path) -> bool:
                 proc_cwd = proc.info.get("cwd")
                 if proc_cwd:
                     proc_path = Path(proc_cwd).resolve()
-                    if proc_path == project_dir or project_dir in proc_path.parents or proc_path in project_dir.parents:
+                    # Only match if:
+                    # 1. Exact match - same directory
+                    # 2. Process is running in a subdirectory of our project
+                    if proc_path == project_dir or proc_path.is_relative_to(project_dir):
                         logger.info(f"Found running dbt process (PID {proc.info['pid']}): {cmdline}")
                         return True
 
