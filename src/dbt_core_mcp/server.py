@@ -1360,6 +1360,71 @@ class DbtCoreMcpServer:
                 "elapsed_time": run_results.get("elapsed_time"),
             }
 
+        @self.app.tool()
+        def install_deps() -> dict[str, Any]:
+            """Install dbt packages defined in packages.yml.
+
+            This tool enables interactive workflow where an LLM can:
+            1. Suggest using a dbt package (e.g., dbt_utils)
+            2. Edit packages.yml to add the package
+            3. Run install_deps() to install it
+            4. Write code that uses the package's macros
+
+            This completes the recommendation workflow without breaking conversation flow.
+
+            Returns:
+                Installation results with status and installed packages
+
+            Example workflow:
+                User: "Create a date dimension table"
+                LLM: 1. Checks: list_resources(type="macro") -> no dbt_utils
+                     2. Edits: packages.yml (adds dbt_utils package)
+                     3. Runs: install_deps() (installs package)
+                     4. Creates: models/date_dim.sql (uses dbt_utils.date_spine)
+
+            Note: This is an interactive development tool, not infrastructure automation.
+            It enables the LLM to act on its own recommendations mid-conversation.
+            """
+            self._ensure_initialized()
+
+            # Execute dbt deps
+            logger.info("Running dbt deps to install packages")
+            result = self.runner.invoke(["deps"])  # type: ignore
+
+            if not result.success:
+                error_msg = str(result.exception) if result.exception else "deps failed"
+                return {
+                    "status": "error",
+                    "message": error_msg,
+                    "command": "dbt deps",
+                }
+
+            # Reload manifest to pick up newly installed packages
+            logger.info("Reloading manifest to include new packages")
+            self.manifest.load()  # type: ignore
+
+            # Get list of installed packages by checking for package macros
+            installed_packages = set()
+            resources = self.manifest.get_resources("macro")  # type: ignore
+
+            for resource in resources:
+                unique_id = resource.get("unique_id", "")
+                # macro.package_name.macro_name format
+                if unique_id.startswith("macro."):
+                    parts = unique_id.split(".")
+                    if len(parts) >= 2:
+                        package_name = parts[1]
+                        # Exclude built-in dbt package
+                        if package_name != "dbt":
+                            installed_packages.add(package_name)
+
+            return {
+                "status": "success",
+                "command": "dbt deps",
+                "installed_packages": sorted(installed_packages),
+                "message": f"Successfully installed {len(installed_packages)} package(s)",
+            }
+
         logger.info("Registered dbt tools")
 
     def run(self) -> None:
