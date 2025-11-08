@@ -144,3 +144,193 @@ def test_list_resources_invalid_type(jaffle_shop_server: "DbtCoreMcpServer") -> 
     assert jaffle_shop_server.manifest is not None
     with pytest.raises(ValueError, match="Invalid resource_type"):
         jaffle_shop_server.manifest.get_resources("invalid_type")
+
+
+# Lineage Tests
+
+
+def test_get_lineage_model_both_directions(jaffle_shop_server: "DbtCoreMcpServer") -> None:
+    """Test get_lineage for a model in both directions."""
+    assert jaffle_shop_server.manifest is not None
+    result = jaffle_shop_server.manifest.get_lineage("customers", "model", "both")
+
+    assert result["resource"]["name"] == "customers"
+    assert result["resource"]["resource_type"] == "model"
+    assert "upstream" in result
+    assert "downstream" in result
+    assert "stats" in result
+
+    # Customers model depends on stg_customers and stg_orders
+    assert result["stats"]["upstream_count"] >= 2
+
+
+def test_get_lineage_upstream_only(jaffle_shop_server: "DbtCoreMcpServer") -> None:
+    """Test get_lineage with upstream direction only."""
+    assert jaffle_shop_server.manifest is not None
+    result = jaffle_shop_server.manifest.get_lineage("customers", "model", "upstream")
+
+    assert "upstream" in result
+    assert "downstream" not in result
+    assert result["stats"]["upstream_count"] >= 2
+    assert result["stats"]["downstream_count"] == 0
+
+
+def test_get_lineage_downstream_only(jaffle_shop_server: "DbtCoreMcpServer") -> None:
+    """Test get_lineage with downstream direction only."""
+    assert jaffle_shop_server.manifest is not None
+    result = jaffle_shop_server.manifest.get_lineage("stg_customers", "model", "downstream")
+
+    assert "downstream" in result
+    assert "upstream" not in result
+    assert result["stats"]["downstream_count"] >= 1  # At least the customers model depends on it
+    assert result["stats"]["upstream_count"] == 0
+
+
+def test_get_lineage_with_depth_limit(jaffle_shop_server: "DbtCoreMcpServer") -> None:
+    """Test get_lineage with depth limitation."""
+    assert jaffle_shop_server.manifest is not None
+    result = jaffle_shop_server.manifest.get_lineage("customers", "model", "upstream", depth=1)
+
+    # Depth 1 should only show immediate dependencies
+    assert "upstream" in result
+    assert all(node["distance"] == 1 for node in result["upstream"])
+
+
+def test_get_lineage_source(jaffle_shop_server: "DbtCoreMcpServer") -> None:
+    """Test get_lineage for a source (sources typically have no upstream, only downstream)."""
+    assert jaffle_shop_server.manifest is not None
+    result = jaffle_shop_server.manifest.get_lineage("jaffle_shop.customers", "source")
+
+    assert result["resource"]["resource_type"] == "source"
+    assert result["stats"]["upstream_count"] == 0  # Sources don't have upstream dependencies
+    assert result["stats"]["downstream_count"] >= 1  # stg_customers depends on this source
+
+
+def test_get_lineage_auto_detect(jaffle_shop_server: "DbtCoreMcpServer") -> None:
+    """Test get_lineage with auto-detection (using type filter to avoid ambiguity)."""
+    assert jaffle_shop_server.manifest is not None
+    result = jaffle_shop_server.manifest.get_lineage("stg_customers", resource_type="model")
+
+    assert result["resource"]["name"] == "stg_customers"
+    assert result["resource"]["resource_type"] == "model"
+
+
+def test_get_lineage_multiple_matches(jaffle_shop_server: "DbtCoreMcpServer") -> None:
+    """Test get_lineage returns multiple_matches for ambiguous names."""
+    assert jaffle_shop_server.manifest is not None
+    result = jaffle_shop_server.manifest.get_lineage("customers")  # Matches both model and source
+
+    assert result["multiple_matches"] is True
+    assert result["match_count"] == 2
+
+
+def test_get_lineage_invalid_direction(jaffle_shop_server: "DbtCoreMcpServer") -> None:
+    """Test get_lineage raises ValueError for invalid direction."""
+    assert jaffle_shop_server.manifest is not None
+    with pytest.raises(ValueError, match="Invalid direction"):
+        jaffle_shop_server.manifest.get_lineage("customers", "model", "invalid")
+
+
+def test_get_lineage_not_found(jaffle_shop_server: "DbtCoreMcpServer") -> None:
+    """Test get_lineage raises ValueError when resource not found."""
+    assert jaffle_shop_server.manifest is not None
+    with pytest.raises(ValueError, match="not found"):
+        jaffle_shop_server.manifest.get_lineage("nonexistent", "model")
+
+
+# Impact Analysis Tests
+
+
+def test_analyze_impact_model(jaffle_shop_server: "DbtCoreMcpServer") -> None:
+    """Test analyze_impact for a model."""
+    assert jaffle_shop_server.manifest is not None
+    result = jaffle_shop_server.manifest.analyze_impact("stg_customers", "model")
+
+    assert result["resource"]["name"] == "stg_customers"
+    assert result["resource"]["resource_type"] == "model"
+    assert "impact" in result
+    assert "affected_by_distance" in result
+    assert "recommendation" in result
+    assert "message" in result
+
+    # stg_customers should have downstream dependencies (customers model)
+    assert result["impact"]["models_affected_count"] >= 1
+    assert result["impact"]["total_affected"] >= 1
+
+
+def test_analyze_impact_source(jaffle_shop_server: "DbtCoreMcpServer") -> None:
+    """Test analyze_impact for a source."""
+    assert jaffle_shop_server.manifest is not None
+    result = jaffle_shop_server.manifest.analyze_impact("jaffle_shop.customers", "source")
+
+    assert result["resource"]["resource_type"] == "source"
+    assert "impact" in result
+
+    # Source should have downstream models
+    assert result["impact"]["models_affected_count"] >= 1
+    assert "source:" in result["recommendation"] or "+" in result["recommendation"]
+
+
+def test_analyze_impact_seed(jaffle_shop_server: "DbtCoreMcpServer") -> None:
+    """Test analyze_impact for a seed."""
+    assert jaffle_shop_server.manifest is not None
+    result = jaffle_shop_server.manifest.analyze_impact("raw_customers", "seed")
+
+    assert result["resource"]["name"] == "raw_customers"
+    assert result["resource"]["resource_type"] == "seed"
+    assert "dbt seed" in result["recommendation"]
+
+
+def test_analyze_impact_distance_grouping(jaffle_shop_server: "DbtCoreMcpServer") -> None:
+    """Test analyze_impact groups affected resources by distance."""
+    assert jaffle_shop_server.manifest is not None
+    result = jaffle_shop_server.manifest.analyze_impact("stg_customers", "model")
+
+    assert "affected_by_distance" in result
+    # Should have at least distance 1 (immediate dependents)
+    assert len(result["affected_by_distance"]) >= 1
+    assert "1" in result["affected_by_distance"]
+
+    # Each distance group should have resources
+    for distance, resources in result["affected_by_distance"].items():
+        assert len(resources) > 0
+        assert all("distance" in r for r in resources)
+
+
+def test_analyze_impact_models_sorted(jaffle_shop_server: "DbtCoreMcpServer") -> None:
+    """Test analyze_impact sorts affected models by distance."""
+    assert jaffle_shop_server.manifest is not None
+    result = jaffle_shop_server.manifest.analyze_impact("stg_customers", "model")
+
+    models = result["impact"]["models_affected"]
+    if len(models) > 1:
+        # Verify sorted by distance
+        distances = [m["distance"] for m in models]
+        assert distances == sorted(distances)
+
+
+def test_analyze_impact_multiple_matches(jaffle_shop_server: "DbtCoreMcpServer") -> None:
+    """Test analyze_impact returns multiple_matches for ambiguous names."""
+    assert jaffle_shop_server.manifest is not None
+    result = jaffle_shop_server.manifest.analyze_impact("customers")  # Matches both model and source
+
+    assert result["multiple_matches"] is True
+    assert result["match_count"] == 2
+
+
+def test_analyze_impact_not_found(jaffle_shop_server: "DbtCoreMcpServer") -> None:
+    """Test analyze_impact raises ValueError when resource not found."""
+    assert jaffle_shop_server.manifest is not None
+    with pytest.raises(ValueError, match="not found"):
+        jaffle_shop_server.manifest.analyze_impact("nonexistent", "model")
+
+
+def test_analyze_impact_message_levels(jaffle_shop_server: "DbtCoreMcpServer") -> None:
+    """Test analyze_impact provides appropriate impact level messages."""
+    assert jaffle_shop_server.manifest is not None
+    result = jaffle_shop_server.manifest.analyze_impact("customers", "model")
+
+    # Should have a message field
+    assert "message" in result
+    # Message should mention impact level
+    assert any(word in result["message"].lower() for word in ["no", "low", "medium", "high", "impact"])

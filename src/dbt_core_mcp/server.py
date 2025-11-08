@@ -692,6 +692,107 @@ class DbtCoreMcpServer:
                 raise ValueError(f"Resource not found: {e}")
 
         @self.app.tool()
+        def get_lineage(
+            name: str,
+            resource_type: str | None = None,
+            direction: str = "both",
+            depth: int | None = None,
+        ) -> dict[str, Any]:
+            """Get lineage (dependency tree) for any dbt resource with auto-detection.
+
+            This unified tool works across all resource types (models, sources, seeds, snapshots, etc.)
+            showing upstream and/or downstream dependencies with configurable depth.
+
+            Args:
+                name: Resource name. For sources, use "source_name.table_name" or just "table_name"
+                    Examples: "customers", "jaffle_shop.orders", "raw_customers"
+                resource_type: Optional filter to narrow search:
+                    - "model": Data transformation models
+                    - "source": External data sources
+                    - "seed": CSV reference data files
+                    - "snapshot": SCD Type 2 historical tables
+                    - "test": Data quality tests
+                    - "analysis": Ad-hoc analysis queries
+                    - None: Auto-detect (searches all types)
+                direction: Lineage direction:
+                    - "upstream": Show where data comes from (parents)
+                    - "downstream": Show what depends on this resource (children)
+                    - "both": Show full lineage (default)
+                depth: Maximum levels to traverse (None for unlimited)
+                    - depth=1: Immediate dependencies only
+                    - depth=2: Dependencies + their dependencies
+                    - None: Full dependency tree
+
+            Returns:
+                Lineage information with upstream/downstream nodes and statistics.
+                If multiple matches found, returns all matches for LLM to process.
+
+            Raises:
+                ValueError: If resource not found or invalid direction
+
+            Examples:
+                get_lineage("customers") -> auto-detect and show full lineage
+                get_lineage("customers", "model", "upstream") -> where customers model gets data
+                get_lineage("jaffle_shop.orders", "source", "downstream", 2) -> 2 levels of dependents
+            """
+            self._ensure_initialized()
+
+            try:
+                result = self.manifest.get_lineage(name, resource_type, direction, depth)  # type: ignore
+                return result
+            except ValueError as e:
+                raise ValueError(f"Lineage error: {e}")
+
+        @self.app.tool()
+        def analyze_impact(
+            name: str,
+            resource_type: str | None = None,
+        ) -> dict[str, Any]:
+            """Analyze the impact of changing any dbt resource with auto-detection.
+
+            This unified tool works across all resource types (models, sources, seeds, snapshots, etc.)
+            showing all downstream dependencies that would be affected by changes. Provides actionable
+            recommendations for running affected resources.
+
+            Args:
+                name: Resource name. For sources, use "source_name.table_name" or just "table_name"
+                    Examples: "stg_customers", "jaffle_shop.orders", "raw_customers"
+                resource_type: Optional filter to narrow search:
+                    - "model": Data transformation models
+                    - "source": External data sources
+                    - "seed": CSV reference data files
+                    - "snapshot": SCD Type 2 historical tables
+                    - "test": Data quality tests
+                    - "analysis": Ad-hoc analysis queries
+                    - None: Auto-detect (searches all types)
+
+            Returns:
+                Impact analysis with:
+                - List of affected models by distance
+                - Count of affected tests and other resources
+                - Total impact statistics
+                - Resources grouped by distance from changed resource
+                - Recommended dbt command to run affected resources
+                - Human-readable impact assessment message
+                If multiple matches found, returns all matches for LLM to process.
+
+            Raises:
+                ValueError: If resource not found
+
+            Examples:
+                analyze_impact("stg_customers") -> auto-detect and show impact
+                analyze_impact("jaffle_shop.orders", "source") -> impact of source change
+                analyze_impact("raw_customers", "seed") -> impact of seed data change
+            """
+            self._ensure_initialized()
+
+            try:
+                result = self.manifest.analyze_impact(name, resource_type)  # type: ignore
+                return result
+            except ValueError as e:
+                raise ValueError(f"Impact analysis error: {e}")
+
+        @self.app.tool()
         def get_compiled_sql(name: str, force: bool = False) -> dict[str, Any]:
             """Get the compiled SQL for a specific dbt model.
 

@@ -533,6 +533,254 @@ class ManifestLoader:
 
         return upstream
 
+    def get_lineage(
+        self,
+        name: str,
+        resource_type: str | None = None,
+        direction: str = "both",
+        depth: int | None = None,
+    ) -> dict[str, Any]:
+        """
+        Get lineage (dependency tree) for any resource type with auto-detection.
+
+        This unified method works across all resource types (models, sources, seeds, etc.)
+        and provides upstream, downstream, or bidirectional dependency traversal.
+
+        Args:
+            name: Resource name. For sources, use "source_name.table_name" or just "table_name"
+            resource_type: Optional filter (model, source, seed, snapshot, test, analysis).
+                          If None, auto-detects resource type.
+            direction: Lineage direction:
+                - "upstream": Show where data comes from (parents)
+                - "downstream": Show what depends on this resource (children)
+                - "both": Show full lineage (default)
+            depth: Maximum levels to traverse (None for unlimited)
+                - depth=1: Immediate dependencies only
+                - depth=2: Dependencies + their dependencies
+                - None: Full dependency tree
+
+        Returns:
+            Dictionary with lineage information:
+            {
+                "resource": {...},  # The target resource info
+                "upstream": [...],  # List of upstream dependencies (if direction in ["upstream", "both"])
+                "downstream": [...],  # List of downstream dependents (if direction in ["downstream", "both"])
+                "stats": {
+                    "upstream_count": int,
+                    "downstream_count": int,
+                    "total_dependencies": int
+                }
+            }
+
+            If multiple matches found, returns:
+            {"multiple_matches": True, "matches": [...], "message": "..."}
+
+        Raises:
+            RuntimeError: If manifest not loaded
+            ValueError: If resource not found or invalid direction
+
+        Examples:
+            get_lineage("customers") -> auto-detect and show full lineage
+            get_lineage("customers", "model", "upstream") -> show where customers model gets data
+            get_lineage("customers", direction="downstream", depth=2) -> 2 levels of dependents
+        """
+        if not self._manifest:
+            raise RuntimeError("Manifest not loaded. Call load() first.")
+
+        # Validate direction
+        valid_directions = {"upstream", "downstream", "both"}
+        if direction not in valid_directions:
+            raise ValueError(f"Invalid direction '{direction}'. Must be one of: {', '.join(sorted(valid_directions))}")
+
+        # Get the resource (auto-detect if resource_type not specified)
+        resource = self.get_resource_node(name, resource_type)
+
+        # Handle multiple matches - return for LLM to process
+        if isinstance(resource, dict) and resource.get("multiple_matches"):
+            return resource
+
+        # Extract unique_id for lineage traversal
+        unique_id = resource.get("unique_id")
+        if not unique_id:
+            raise ValueError(f"Resource '{name}' does not have a unique_id")
+
+        # Build lineage based on direction
+        result: dict[str, Any] = {
+            "resource": {
+                "name": resource.get("name"),
+                "unique_id": unique_id,
+                "resource_type": resource.get("resource_type"),
+                "package_name": resource.get("package_name"),
+            }
+        }
+
+        upstream: list[dict[str, Any]] = []
+        downstream: list[dict[str, Any]] = []
+
+        if direction in ("upstream", "both"):
+            upstream = self.get_upstream_nodes(unique_id, max_depth=depth)
+            result["upstream"] = upstream
+
+        if direction in ("downstream", "both"):
+            downstream = self.get_downstream_nodes(unique_id, max_depth=depth)
+            result["downstream"] = downstream
+
+        # Add statistics
+        result["stats"] = {
+            "upstream_count": len(upstream),
+            "downstream_count": len(downstream),
+            "total_dependencies": len(upstream) + len(downstream),
+        }
+
+        return result
+
+    def analyze_impact(
+        self,
+        name: str,
+        resource_type: str | None = None,
+    ) -> dict[str, Any]:
+        """
+        Analyze the impact of changing a resource across all resource types.
+
+        Shows all downstream dependencies that would be affected by changes,
+        including models, tests, and other resources. Provides actionable
+        recommendations for running affected resources.
+
+        Args:
+            name: Resource name. For sources, use "source_name.table_name" or just "table_name"
+            resource_type: Optional filter (model, source, seed, snapshot, test, analysis).
+                          If None, auto-detects resource type.
+
+        Returns:
+            Dictionary with impact analysis:
+            {
+                "resource": {...},  # The target resource info
+                "impact": {
+                    "models_affected": [...],  # Downstream models by distance
+                    "models_affected_count": int,
+                    "tests_affected_count": int,
+                    "other_affected_count": int,
+                    "total_affected": int
+                },
+                "affected_by_distance": {
+                    "1": [...],  # Immediate dependents
+                    "2": [...],  # Second-level dependents
+                    ...
+                },
+                "recommendation": str,  # Suggested dbt command
+                "message": str  # Human-readable impact assessment
+            }
+
+            If multiple matches found, returns:
+            {"multiple_matches": True, "matches": [...], "message": "..."}
+
+        Raises:
+            RuntimeError: If manifest not loaded
+            ValueError: If resource not found
+
+        Examples:
+            analyze_impact("stg_customers") -> impact of changing staging model
+            analyze_impact("jaffle_shop.orders", "source") -> impact of source change
+            analyze_impact("raw_customers", "seed") -> impact of seed change
+        """
+        if not self._manifest:
+            raise RuntimeError("Manifest not loaded. Call load() first.")
+
+        # Get the resource (auto-detect if resource_type not specified)
+        resource = self.get_resource_node(name, resource_type)
+
+        # Handle multiple matches - return for LLM to process
+        if isinstance(resource, dict) and resource.get("multiple_matches"):
+            return resource
+
+        # Extract unique_id for impact traversal
+        unique_id = resource.get("unique_id")
+        if not unique_id:
+            raise ValueError(f"Resource '{name}' does not have a unique_id")
+
+        # Get all downstream dependencies (no depth limit for impact)
+        downstream = self.get_downstream_nodes(unique_id, max_depth=None)
+
+        # Categorize by resource type
+        models_affected: list[dict[str, Any]] = []
+        tests_affected: list[dict[str, Any]] = []
+        other_affected: list[dict[str, Any]] = []
+        affected_by_distance: dict[str, list[dict[str, Any]]] = {}
+
+        for dep in downstream:
+            dep_type = str(dep["type"])
+            distance = str(dep["distance"])
+
+            # Group by distance
+            if distance not in affected_by_distance:
+                affected_by_distance[distance] = []
+            affected_by_distance[distance].append(dep)
+
+            # Categorize by type
+            if dep_type == "model":
+                models_affected.append(dep)
+            elif dep_type == "test":
+                tests_affected.append(dep)
+            else:
+                other_affected.append(dep)
+
+        # Sort models by distance for better readability
+        models_affected_sorted = sorted(models_affected, key=lambda x: (int(x["distance"]), str(x["name"])))
+
+        # Build recommendation based on resource type
+        resource_name = resource.get("name", name)
+        current_resource_type = resource.get("resource_type")
+
+        if current_resource_type == "source":
+            # For sources, recommend running downstream models
+            if len(models_affected) == 0:
+                recommendation = f"dbt test -s source:{resource.get('source_name')}.{resource_name}"
+            else:
+                recommendation = f"dbt run -s {resource_name}+"
+        elif current_resource_type == "seed":
+            # For seeds, recommend seeding + downstream
+            if len(models_affected) == 0:
+                recommendation = f"dbt seed -s {resource_name} && dbt test -s {resource_name}"
+            else:
+                recommendation = f"dbt seed -s {resource_name} && dbt run -s {resource_name}+"
+        else:
+            # For models, snapshots, etc.
+            if len(models_affected) == 0:
+                recommendation = f"dbt run -s {resource_name}"
+            else:
+                recommendation = f"dbt run -s {resource_name}+"
+
+        # Build result
+        result: dict[str, Any] = {
+            "resource": {
+                "name": resource_name,
+                "unique_id": unique_id,
+                "resource_type": current_resource_type,
+                "package_name": resource.get("package_name"),
+            },
+            "impact": {
+                "models_affected": models_affected_sorted,
+                "models_affected_count": len(models_affected),
+                "tests_affected_count": len(tests_affected),
+                "other_affected_count": len(other_affected),
+                "total_affected": len(downstream),
+            },
+            "affected_by_distance": affected_by_distance,
+            "recommendation": recommendation,
+        }
+
+        # Add helpful message based on impact size
+        if len(models_affected) == 0:
+            result["message"] = "No downstream models affected. Only this resource needs to be run/tested."
+        elif len(models_affected) <= 3:
+            result["message"] = f"Low impact: {len(models_affected)} downstream model(s) affected."
+        elif len(models_affected) <= 10:
+            result["message"] = f"Medium impact: {len(models_affected)} downstream models affected."
+        else:
+            result["message"] = f"High impact: {len(models_affected)} downstream models affected. Consider incremental changes."
+
+        return result
+
     def get_downstream_nodes(self, unique_id: str, max_depth: int | None = None, current_depth: int = 0) -> list[dict[str, Any]]:
         """Get all downstream dependents of a node recursively.
 
