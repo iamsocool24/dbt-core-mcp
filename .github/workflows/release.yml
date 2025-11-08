@@ -27,7 +27,7 @@ jobs:
         id: version_bump
         run: |
           # Get current version from pyproject.toml
-          CURRENT_VERSION=$(grep -oP 'version = "\K[^"]+' pyproject.toml)
+          CURRENT_VERSION=$(grep -oP '^version = "\K[^"]+' pyproject.toml | head -1)
           # Bump patch version
           NEW_VERSION=$(echo $CURRENT_VERSION | awk -F. '{$NF = $NF + 1;} 1' | sed 's/ /./g')
           # Update pyproject.toml
