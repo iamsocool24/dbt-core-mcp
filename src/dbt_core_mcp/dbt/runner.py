@@ -52,13 +52,12 @@ class DbtRunner(Protocol):
         """
         ...
 
-    def invoke_query(self, sql: str, limit: int | None = None) -> DbtRunnerResult:
+    def invoke_query(self, sql: str) -> DbtRunnerResult:
         """
         Execute a SQL query.
 
         Args:
-            sql: SQL query to execute
-            limit: Optional LIMIT clause to add to query (not used for non-SELECT commands)
+            sql: SQL query to execute (include LIMIT in SQL if needed)
 
         Returns:
             Result with query output

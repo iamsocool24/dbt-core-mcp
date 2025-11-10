@@ -424,7 +424,7 @@ class DbtCoreMcpServer:
         """
         try:
             sql = f"DESCRIBE {{{{ ref('{model_name}') }}}}"
-            result = await self.runner.invoke_query(sql, limit=None)  # type: ignore
+            result = await self.runner.invoke_query(sql)  # type: ignore
 
             if not result.success or not result.stdout:
                 return []
@@ -588,10 +588,10 @@ class DbtCoreMcpServer:
 
         return info
 
-    async def toolImpl_query_database(self, sql: str, limit: int | None = None) -> dict[str, Any]:
+    async def toolImpl_query_database(self, sql: str) -> dict[str, Any]:
         """Implementation for query_database tool."""
         # Execute query using dbt show --inline
-        result = await self.runner.invoke_query(sql, limit)  # type: ignore
+        result = await self.runner.invoke_query(sql)  # type: ignore
 
         if not result.success:
             error_msg = str(result.exception) if result.exception else "Unknown error"
@@ -1282,7 +1282,7 @@ class DbtCoreMcpServer:
             return await self.toolImpl_analyze_impact(name, resource_type)
 
         @self.app.tool()
-        async def query_database(ctx: Context, sql: str, limit: int | None = None) -> dict[str, Any]:
+        async def query_database(ctx: Context, sql: str) -> dict[str, Any]:
             """Execute a SQL query against the dbt project's database.
 
             Uses dbt show --inline to execute queries with full Jinja templating support.
@@ -1291,14 +1291,13 @@ class DbtCoreMcpServer:
             Args:
                 sql: SQL query to execute. Supports Jinja: {{ ref('model') }}, {{ source('src', 'table') }}
                      Can be SELECT, DESCRIBE, EXPLAIN, aggregations, JOINs, etc.
-                limit: Optional maximum number of rows to return. If None (default), returns all rows.
-                       If specified, limits the result set to that number of rows.
+                     For exploratory queries, include LIMIT in your SQL. For aggregations/counts, omit it.
 
             Returns:
                 Query results with rows in JSON format
             """
             await self._ensure_initialized_with_context(ctx)
-            return await self.toolImpl_query_database(sql, limit)
+            return await self.toolImpl_query_database(sql)
 
         @self.app.tool()
         async def run_models(

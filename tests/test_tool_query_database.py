@@ -36,9 +36,9 @@ async def test_query_database_with_source(jaffle_shop_server: "DbtCoreMcpServer"
     assert result["row_count"] <= 3
 
 
-async def test_query_database_with_limit(jaffle_shop_server: "DbtCoreMcpServer") -> None:
-    """Test query_database with explicit limit parameter."""
-    result = await jaffle_shop_server.toolImpl_query_database("SELECT * FROM {{ ref('customers') }}", limit=2)
+async def test_query_database_with_limit_in_sql(jaffle_shop_server: "DbtCoreMcpServer") -> None:
+    """Test query_database with LIMIT clause in SQL."""
+    result = await jaffle_shop_server.toolImpl_query_database("SELECT * FROM {{ ref('customers') }} LIMIT 2")
 
     assert result["status"] == "success"
     assert "rows" in result

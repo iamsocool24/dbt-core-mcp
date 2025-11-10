@@ -303,30 +303,28 @@ class BridgeRunner:
         """Get the path to the manifest.json file."""
         return self._target_dir / "manifest.json"
 
-    async def invoke_query(self, sql: str, limit: int | None = None) -> DbtRunnerResult:
+    async def invoke_query(self, sql: str) -> DbtRunnerResult:
         """
         Execute a SQL query using dbt show --inline.
 
         This method supports Jinja templating including {{ ref() }} and {{ source() }}.
+        The SQL should include LIMIT clause if needed - no automatic limiting is applied.
 
         Args:
             sql: SQL query to execute (supports Jinja: {{ ref('model') }}, {{ source('src', 'table') }})
-            limit: Optional row limit. If None, returns all rows (--limit -1). If specified, limits results.
+                 Include LIMIT in the SQL if you want to limit results.
 
         Returns:
             Result with query output in JSON format
         """
-        # Convert limit: None -> -1 (no limit), otherwise use the specified value
-        limit_arg = -1 if limit is None else limit
-
         # Use dbt show --inline with JSON output
-        # --limit -1 disables the automatic LIMIT that dbt show adds
+        # --limit -1 disables the automatic LIMIT that dbt show adds (returns all rows)
         args = [
             "show",
             "--inline",
             sql,
             "--limit",
-            str(limit_arg),
+            "-1",
             "--output",
             "json",
         ]
