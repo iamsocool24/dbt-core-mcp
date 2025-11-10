@@ -4,6 +4,7 @@ dbt Core MCP Server Implementation.
 This server provides tools for interacting with dbt projects via the Model Context Protocol.
 """
 
+import asyncio
 import json
 import logging
 import os
@@ -76,6 +77,9 @@ class DbtCoreMcpServer:
         self.runner: BridgeRunner | None = None
         self.manifest: ManifestLoader | None = None
         self.adapter_type: str | None = None
+
+        # Concurrency control for initialization
+        self._init_lock = asyncio.Lock()
 
         # Add built-in FastMCP middleware (2.11.0)
         self.app.add_middleware(ErrorHandlingMiddleware())  # Handle errors first
@@ -253,40 +257,49 @@ class DbtCoreMcpServer:
     async def _ensure_initialized_with_context(self, ctx: Any) -> None:
         """Ensure dbt components are initialized, with optional workspace root detection.
 
+        Uses async lock to prevent concurrent initialization races when multiple tools
+        are called simultaneously.
+
         Args:
             ctx: FastMCP Context for accessing workspace roots
         """
-        # Always check for workspace changes, even if previously initialized
-        detected_workspace: Path | None = None
+        async with self._init_lock:
+            # Always check for workspace changes, even if previously initialized
+            detected_workspace: Path | None = None
 
-        if not self._explicit_project_dir:
-            detected_workspace = await self._detect_workspace_roots(ctx)
+            if not self._explicit_project_dir:
+                detected_workspace = await self._detect_workspace_roots(ctx)
 
-        # If workspace changed, reinitialize everything
-        if detected_workspace and detected_workspace != self.project_dir:
-            logger.info(f"Workspace changed from {self.project_dir} to {detected_workspace}, reinitializing...")
-            self.project_dir = detected_workspace
-            self.runner = None
-            self.manifest = None
-
-        # Ensure project directory is set (first time or after workspace change)
-        if not self.project_dir:
-            if detected_workspace:
+            # If workspace changed, reinitialize everything
+            if detected_workspace and detected_workspace != self.project_dir:
+                logger.info(f"Workspace changed from {self.project_dir} to {detected_workspace}, reinitializing...")
                 self.project_dir = detected_workspace
+                self.runner = None
+                self.manifest = None
+
+            # Ensure project directory is set (first time or after workspace change)
+            if not self.project_dir:
+                if detected_workspace:
+                    self.project_dir = detected_workspace
+                else:
+                    self.project_dir = self._detect_project_dir()
+                    logger.info(f"dbt project directory: {self.project_dir}")
+
+            if not self.project_dir:
+                raise RuntimeError("dbt project directory not set. The MCP server requires a workspace with a dbt_project.yml file.")
+
+            # Check if manifest is stale (time delta check)
+            needs_parse = self._is_manifest_stale()
+
+            # Initialize components if needed (first time or after workspace change)
+            # Parse only if manifest is stale
+            if not self.runner or not self.manifest or needs_parse:
+                await self._initialize_dbt_components(needs_parse=needs_parse)
             else:
-                self.project_dir = self._detect_project_dir()
-                logger.info(f"dbt project directory: {self.project_dir}")
-
-        if not self.project_dir:
-            raise RuntimeError("dbt project directory not set. The MCP server requires a workspace with a dbt_project.yml file.")
-
-        # Check if manifest is stale (time delta check)
-        needs_parse = self._is_manifest_stale()
-
-        # Initialize components if needed (first time or after workspace change)
-        # Parse only if manifest is stale
-        if not self.runner or not self.manifest or needs_parse:
-            await self._initialize_dbt_components(needs_parse=needs_parse)
+                # Components exist and manifest is fresh, but ensure manifest data is loaded
+                # (in case this is a new process instance with existing ManifestLoader object)
+                if not self.manifest.is_loaded():
+                    await self.manifest.load()
 
     def _parse_run_results(self) -> dict[str, Any]:
         """Parse target/run_results.json after dbt run/test/build.

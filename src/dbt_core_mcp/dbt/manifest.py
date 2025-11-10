@@ -79,6 +79,14 @@ class ManifestLoader:
         self._manifest = await asyncio.to_thread(_read_manifest)
         logger.info("Manifest loaded successfully")
 
+    def is_loaded(self) -> bool:
+        """Check if the manifest data has been loaded.
+
+        Returns:
+            True if manifest data is loaded in memory, False otherwise
+        """
+        return self._manifest is not None
+
     def get_resources(self, resource_type: str | None = None) -> list[dict[str, Any]]:
         """
         Get all resources from the manifest, optionally filtered by type.
