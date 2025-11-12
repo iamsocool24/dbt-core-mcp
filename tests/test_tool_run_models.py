@@ -20,7 +20,7 @@ async def seeded_jaffle_shop_server(jaffle_shop_server: "DbtCoreMcpServer"):
 
 async def test_run_models_all(seeded_jaffle_shop_server: "DbtCoreMcpServer") -> None:
     """Test running all models."""
-    result = await seeded_jaffle_shop_server.toolImpl_run_models()
+    result = await seeded_jaffle_shop_server.toolImpl_run_models(ctx=None)
 
     assert result["status"] == "success"
     assert "results" in result
@@ -31,7 +31,7 @@ async def test_run_models_all(seeded_jaffle_shop_server: "DbtCoreMcpServer") -> 
 
 async def test_run_models_select_specific(seeded_jaffle_shop_server: "DbtCoreMcpServer") -> None:
     """Test running a specific model."""
-    result = await seeded_jaffle_shop_server.toolImpl_run_models(select="customers")
+    result = await seeded_jaffle_shop_server.toolImpl_run_models(ctx=None, select="customers")
 
     assert result["status"] == "success"
     assert "results" in result
@@ -42,7 +42,7 @@ async def test_run_models_select_specific(seeded_jaffle_shop_server: "DbtCoreMcp
 async def test_run_models_invalid_selection_combination(jaffle_shop_server: "DbtCoreMcpServer") -> None:
     """Test that using both modified_only and select raises error."""
     with pytest.raises(ValueError, match="Cannot use both modified_\\* flags and select parameter"):
-        await jaffle_shop_server.toolImpl_run_models(select="customers", modified_only=True)
+        await jaffle_shop_server.toolImpl_run_models(ctx=None, select="customers", modified_only=True)
 
 
 async def test_run_models_modified_only_no_state(jaffle_shop_server: "DbtCoreMcpServer") -> None:
@@ -55,7 +55,7 @@ async def test_run_models_modified_only_no_state(jaffle_shop_server: "DbtCoreMcp
 
         shutil.rmtree(state_dir)
 
-    result = await jaffle_shop_server.toolImpl_run_models(modified_only=True)
+    result = await jaffle_shop_server.toolImpl_run_models(ctx=None, modified_only=True)
 
     assert result["status"] == "error"
     assert "No previous run state found" in result["message"]
@@ -72,7 +72,7 @@ async def test_run_models_creates_state(seeded_jaffle_shop_server: "DbtCoreMcpSe
         shutil.rmtree(state_dir)
 
     # Run models
-    result = await seeded_jaffle_shop_server.toolImpl_run_models()
+    result = await seeded_jaffle_shop_server.toolImpl_run_models(ctx=None)
 
     assert result["status"] == "success"
     # State should be created
@@ -82,7 +82,7 @@ async def test_run_models_creates_state(seeded_jaffle_shop_server: "DbtCoreMcpSe
 
 async def test_run_models_full_refresh(seeded_jaffle_shop_server: "DbtCoreMcpServer") -> None:
     """Test run with full_refresh flag."""
-    result = await seeded_jaffle_shop_server.toolImpl_run_models(full_refresh=True)
+    result = await seeded_jaffle_shop_server.toolImpl_run_models(ctx=None, full_refresh=True)
 
     assert result["status"] == "success"
     assert "--full-refresh" in result["command"]

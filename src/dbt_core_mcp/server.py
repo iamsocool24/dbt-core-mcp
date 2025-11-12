@@ -472,6 +472,46 @@ class DbtCoreMcpServer:
         logger.info(f"Extracted {len(columns)} columns for {model_name}: {columns}")
         return sorted(columns)
 
+    async def _detect_modified_models(self, selector: str, state_path: str = "target/state_last_run") -> list[str]:
+        """Detect which models would be selected by dbt without running them.
+
+        Uses `dbt list` command to perform a dry-run.
+
+        Args:
+            selector: DBT selector (e.g., "state:modified", "state:modified+")
+            state_path: Path to state directory
+
+        Returns:
+            List of model names that would be selected
+        """
+        args = ["list", "--select", selector, "--state", state_path, "--output", "name"]
+        result = await self.runner.invoke(args)  # type: ignore
+
+        if not result.success:
+            raise ValueError(f"Failed to detect modified models: {result.exception}")
+
+        # Parse output to get model names
+        models = []
+        logger.info(f"dbt list output: {result.stdout[:500]}")
+
+        for line in result.stdout.split("\n"):
+            line = line.strip()
+            # Skip empty lines
+            if not line:
+                continue
+            # Skip log/info lines (start with timestamp, brackets, or contain common log keywords)
+            if line.startswith("[") or line.startswith("{"):
+                continue
+            if ":" in line[:15]:  # Timestamp like "12:34:56"
+                continue
+            if any(skip in line for skip in ["Running with dbt=", "Registered adapter:", "Found", "Concurrency:", "Finished running", "Completed successfully"]):
+                continue
+            # Line should be a model name (e.g., "jaffle_shop.customers" or just "customers")
+            models.append(line)
+
+        logger.info(f"Detected modified models: {models}")
+        return models
+
     async def toolImpl_get_resource_info(
         self,
         name: str,
@@ -643,6 +683,7 @@ class DbtCoreMcpServer:
 
     async def toolImpl_run_models(
         self,
+        ctx: Context | None,
         select: str | None = None,
         exclude: str | None = None,
         modified_only: bool = False,
@@ -650,6 +691,7 @@ class DbtCoreMcpServer:
         full_refresh: bool = False,
         fail_fast: bool = False,
         check_schema_changes: bool = False,
+        confirm_threshold: int = 5,
     ) -> dict[str, Any]:
         """Implementation for run_models tool."""
         # Validate: can't use both smart and manual selection
@@ -671,6 +713,36 @@ class DbtCoreMcpServer:
                 }
 
             selector = "state:modified+" if modified_downstream else "state:modified"
+
+            # Detect which models will be run
+            try:
+                models_to_run = await self._detect_modified_models(selector)
+            except Exception as e:
+                return {"status": "error", "message": f"Failed to detect modified models: {str(e)}"}
+
+            # Ask for user confirmation
+            if not models_to_run:
+                if ctx:
+                    await ctx.info("No modified models detected")
+                return {"status": "success", "message": "No modified models to run", "results": [], "elapsed_time": 0}
+
+            # Ask for user confirmation only if above threshold
+            if len(models_to_run) >= confirm_threshold and ctx:
+                model_list = "\n".join(f"- {m}" for m in models_to_run)
+                message = f"""The following {len(models_to_run)} model(s) have changes and will be run:
+
+{model_list}
+
+Do you want to proceed?"""
+
+                result = await ctx.elicit(message=message, response_type=None)
+
+                if result.action != "accept":
+                    raise ValueError("User declined to run models")
+
+            if ctx:
+                await ctx.info(f"Running {len(models_to_run)} modified model(s)...")
+
             # Use relative path for --state since cwd=project_dir
             args.extend(["-s", selector, "--state", "target/state_last_run"])
 
@@ -854,12 +926,14 @@ class DbtCoreMcpServer:
 
     async def toolImpl_build_models(
         self,
+        ctx: Context | None,
         select: str | None = None,
         exclude: str | None = None,
         modified_only: bool = False,
         modified_downstream: bool = False,
         full_refresh: bool = False,
         fail_fast: bool = False,
+        confirm_threshold: int = 5,
     ) -> dict[str, Any]:
         """Implementation of build_models tool."""
         # Validate: can't use both smart and manual selection
@@ -882,6 +956,36 @@ class DbtCoreMcpServer:
                 }
 
             selector = "state:modified+" if modified_downstream else "state:modified"
+
+            # Detect which models will be built
+            try:
+                models_to_build = await self._detect_modified_models(selector)
+            except Exception as e:
+                return {"status": "error", "message": f"Failed to detect modified models: {str(e)}"}
+
+            # Ask for user confirmation
+            if not models_to_build:
+                if ctx:
+                    await ctx.info("No modified models detected")
+                return {"status": "success", "message": "No modified models to build", "results": [], "elapsed_time": 0}
+
+            # Ask for user confirmation only if above threshold
+            if len(models_to_build) >= confirm_threshold and ctx:
+                model_list = "\n".join(f"- {m}" for m in models_to_build)
+                message = f"""The following {len(models_to_build)} model(s) have changes and will be built:
+
+{model_list}
+
+Do you want to proceed?"""
+
+                result = await ctx.elicit(message=message, response_type=None)
+
+                if result.action != "accept":
+                    raise ValueError("User declined to build models")
+
+            if ctx:
+                await ctx.info(f"Building {len(models_to_build)} modified model(s)...")
+
             # Use relative path for --state since cwd=project_dir
             args.extend(["-s", selector, "--state", "target/state_last_run"])
 
@@ -1285,13 +1389,24 @@ class DbtCoreMcpServer:
         async def query_database(ctx: Context, sql: str) -> dict[str, Any]:
             """Execute a SQL query against the dbt project's database.
 
-            Uses dbt show --inline to execute queries with full Jinja templating support.
-            Supports {{ ref('model_name') }} and {{ source('source_name', 'table_name') }}.
+            BEST PRACTICES:
+            1. Before querying: Inspect schema using get_resource_info() with include_database_schema=True
+            2. Always use {{ ref('model_name') }} for dbt models (never hard-code table paths)
+            3. Always use {{ source('source_name', 'table_name') }} for source tables
+            4. For non-dbt tables: Verify schema with user before querying
+            5. After results: Report "Query Result: X rows retrieved" and summarize key findings
+
+            QUERY EFFICIENCY:
+            - Use aggregations (COUNT, SUM, AVG, etc.) instead of pulling raw data
+            - Apply WHERE filters early to narrow scope before aggregation
+            - Use LIMIT for exploratory queries to get representative samples
+            - Calculate totals, ratios, and trends in SQL rather than returning all rows
+            - Use GROUP BY for categorization within the query
+            - Always ask: "Can SQL answer this question directly?" before returning data
 
             Args:
-                sql: SQL query to execute. Supports Jinja: {{ ref('model') }}, {{ source('src', 'table') }}
-                     Can be SELECT, DESCRIBE, EXPLAIN, aggregations, JOINs, etc.
-                     For exploratory queries, include LIMIT in your SQL. For aggregations/counts, omit it.
+                sql: SQL query with Jinja templating: {{ ref('model') }}, {{ source('src', 'table') }}
+                     For exploratory queries, include LIMIT. For aggregations/counts, omit it.
 
             Returns:
                 Query results with rows in JSON format
@@ -1309,6 +1424,7 @@ class DbtCoreMcpServer:
             full_refresh: bool = False,
             fail_fast: bool = False,
             check_schema_changes: bool = False,
+            confirm_threshold: int = 5,
         ) -> dict[str, Any]:
             """Run dbt models (compile SQL and execute against database).
 
@@ -1328,6 +1444,7 @@ class DbtCoreMcpServer:
                 full_refresh: Force full refresh of incremental models
                 fail_fast: Stop execution on first failure
                 check_schema_changes: Detect schema changes and recommend downstream runs
+                confirm_threshold: Minimum number of models to trigger confirmation (default: 5)
 
             Returns:
                 Execution results with status, models run, timing info, and optional schema_changes
@@ -1338,9 +1455,10 @@ class DbtCoreMcpServer:
                 - run_models(modified_downstream=True) - Run changed + downstream
                 - run_models(select="tag:mart", full_refresh=True) - Full refresh marts
                 - run_models(modified_only=True, check_schema_changes=True) - Detect schema changes
+                - run_models(modified_only=True, confirm_threshold=10) - Confirm only if 10+ models
             """
             await self._ensure_initialized_with_context(ctx)
-            return await self.toolImpl_run_models(select, exclude, modified_only, modified_downstream, full_refresh, fail_fast, check_schema_changes)
+            return await self.toolImpl_run_models(ctx, select, exclude, modified_only, modified_downstream, full_refresh, fail_fast, check_schema_changes, confirm_threshold)
 
         @self.app.tool()
         async def test_models(
@@ -1383,6 +1501,7 @@ class DbtCoreMcpServer:
             modified_downstream: bool = False,
             full_refresh: bool = False,
             fail_fast: bool = False,
+            confirm_threshold: int = 5,
         ) -> dict[str, Any]:
             """Run DBT build (run + test in DAG order).
 
@@ -1401,12 +1520,13 @@ class DbtCoreMcpServer:
                 modified_downstream: Build modified models + downstream dependencies
                 full_refresh: Force full refresh of incremental models
                 fail_fast: Stop execution on first failure
+                confirm_threshold: Minimum number of models to trigger confirmation (default: 5)
 
             Returns:
                 Build results with status, models run/tested, and timing info
             """
             await self._ensure_initialized_with_context(ctx)
-            return await self.toolImpl_build_models(select, exclude, modified_only, modified_downstream, full_refresh, fail_fast)
+            return await self.toolImpl_build_models(ctx, select, exclude, modified_only, modified_downstream, full_refresh, fail_fast, confirm_threshold)
 
         @self.app.tool()
         async def seed_data(

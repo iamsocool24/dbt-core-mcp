@@ -68,7 +68,7 @@ async def test_test_creates_uses_state(jaffle_shop_server: "DbtCoreMcpServer"):
     state_dir = jaffle_shop_server.project_dir / "target" / "state_last_run"
 
     # Ensure we have state by running models first
-    run_result = await jaffle_shop_server.toolImpl_run_models()
+    run_result = await jaffle_shop_server.toolImpl_run_models(ctx=None)
     assert run_result["status"] == "success"
     assert state_dir.exists()
 
