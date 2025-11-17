@@ -635,10 +635,16 @@ class DbtCoreMcpServer:
 
         if not result.success:
             error_msg = str(result.exception) if result.exception else "Unknown error"
-            return {
+            response = {
                 "error": error_msg,
                 "status": "failed",
             }
+            # Include dbt output for debugging
+            if result.stdout:
+                response["dbt_output"] = result.stdout
+            if result.stderr:
+                response["stderr"] = result.stderr
+            return response
 
         # Parse JSON output from dbt show
         import json
@@ -808,11 +814,17 @@ Do you want to proceed?"""
 
         if not result.success:
             error_msg = str(result.exception) if result.exception else "Run failed"
-            return {
+            response = {
                 "status": "error",
                 "message": error_msg,
                 "command": " ".join(args),
             }
+            # Include dbt output for debugging
+            if result.stdout:
+                response["dbt_output"] = result.stdout
+            if result.stderr:
+                response["stderr"] = result.stderr
+            return response
 
         # Parse run_results.json for details
         run_results = self._parse_run_results()
@@ -908,11 +920,17 @@ Do you want to proceed?"""
 
         if not result.success:
             error_msg = str(result.exception) if result.exception else "Tests failed"
-            return {
+            response = {
                 "status": "error",
                 "message": error_msg,
                 "command": " ".join(args),
             }
+            # Include dbt output for debugging
+            if result.stdout:
+                response["dbt_output"] = result.stdout
+            if result.stderr:
+                response["stderr"] = result.stderr
+            return response
 
         # Parse run_results.json for details
         run_results = self._parse_run_results()
@@ -1008,11 +1026,17 @@ Do you want to proceed?"""
 
         if not result.success:
             error_msg = str(result.exception) if result.exception else "Build failed"
-            return {
+            response = {
                 "status": "error",
                 "message": error_msg,
                 "command": " ".join(args),
             }
+            # Include dbt output for debugging
+            if result.stdout:
+                response["dbt_output"] = result.stdout
+            if result.stderr:
+                response["stderr"] = result.stderr
+            return response
 
         # Save state on success for next modified run
         if result.success and self.project_dir:
@@ -1080,11 +1104,17 @@ Do you want to proceed?"""
 
         if not result.success:
             error_msg = str(result.exception) if result.exception else "Seed failed"
-            return {
+            response = {
                 "status": "error",
                 "message": error_msg,
                 "command": " ".join(args),
             }
+            # Include dbt output for debugging
+            if result.stdout:
+                response["dbt_output"] = result.stdout
+            if result.stderr:
+                response["stderr"] = result.stderr
+            return response
 
         # Save state on success for next modified run
         if result.success and self.project_dir:
@@ -1123,11 +1153,17 @@ Do you want to proceed?"""
 
         if not result.success:
             error_msg = str(result.exception) if result.exception else "Snapshot failed"
-            return {
+            response = {
                 "status": "error",
                 "message": error_msg,
                 "command": " ".join(args),
             }
+            # Include dbt output for debugging
+            if result.stdout:
+                response["dbt_output"] = result.stdout
+            if result.stderr:
+                response["stderr"] = result.stderr
+            return response
 
         # Parse run_results.json for details
         run_results = self._parse_run_results()

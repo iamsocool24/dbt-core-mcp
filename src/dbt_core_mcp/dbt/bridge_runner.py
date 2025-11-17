@@ -185,6 +185,8 @@ class BridgeRunner:
                 return DbtRunnerResult(
                     success=False,
                     exception=RuntimeError(f"dbt command failed (exit code {returncode}): {error_msg[:500]}"),
+                    stdout=stdout,
+                    stderr=stderr,
                 )
 
         except asyncio.CancelledError:
@@ -199,7 +201,7 @@ class BridgeRunner:
             if proc and proc.returncode is None:
                 proc.kill()
                 await proc.wait()
-            return DbtRunnerResult(success=False, exception=e)
+            return DbtRunnerResult(success=False, exception=e, stdout="", stderr="")
 
     async def _kill_process_tree(self, proc: asyncio.subprocess.Process) -> None:
         """Kill a process and all its children."""
